@@ -608,6 +608,13 @@ add_executable(image_range_native_id_tests EXCLUDE_FROM_ALL
 target_link_libraries(image_range_native_id_tests common fmt::fmt)
 target_include_directories(image_range_native_id_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# S4-B: simulated descriptor-reuse ratios, not measured game hit rates.
+add_executable(image_range_cold_mix_bench EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/ImageRangeColdMixBench.cpp"
+)
+target_link_libraries(image_range_cold_mix_bench common fmt::fmt)
+target_include_directories(image_range_cold_mix_bench PRIVATE ${KYTY_SOURCE_DIR})
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
