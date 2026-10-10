@@ -190,6 +190,8 @@ if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0.0)
 endif()
 
 option(KYTY_BUILD_LAUNCHER "Build Qt launcher" ON)
+# KYTY-INDEX-001: diagnostic-only; absent from normal production builds.
+option(KYTY_TEXTURE_RANGE_TELEMETRY "Compile optional TextureCache range statistics" OFF)
 
 config_compiler_and_linker()
 
@@ -622,6 +624,12 @@ add_executable(image_range_heap_ledger_bench EXCLUDE_FROM_ALL
 target_link_libraries(image_range_heap_ledger_bench common fmt::fmt)
 target_include_directories(image_range_heap_ledger_bench PRIVATE ${KYTY_SOURCE_DIR})
 
+# Pure CPU tests for the opt-in production telemetry accumulator.
+add_executable(texture_range_telemetry_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/TextureRangeTelemetryTests.cpp"
+)
+target_include_directories(texture_range_telemetry_tests PRIVATE ${KYTY_SOURCE_DIR})
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
@@ -675,6 +683,7 @@ if(BUILD_TESTING)
 	add_test(NAME image_range_index COMMAND $<TARGET_FILE:image_range_index_tests>)
 	add_test(NAME image_range_hybrid COMMAND $<TARGET_FILE:image_range_hybrid_tests>)
 	add_test(NAME image_range_native_id COMMAND $<TARGET_FILE:image_range_native_id_tests>)
+	add_test(NAME texture_range_telemetry COMMAND $<TARGET_FILE:texture_range_telemetry_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
 	add_test(NAME archive_file COMMAND $<TARGET_FILE:archive_file_tests>)
@@ -754,6 +763,7 @@ if(BUILD_TESTING)
 		image_range_index_tests
 		image_range_hybrid_tests
 		image_range_native_id_tests
+		texture_range_telemetry_tests
 		memory_tracker_tests
 		page_manager_tests
 		archive_file_tests
@@ -800,6 +810,9 @@ if(APPLE AND (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR
 endif()
 
 add_executable(kyty_emulator "${KYTY_SOURCE_DIR}/main.cpp" ${kyty_emulator_src})
+if(KYTY_TEXTURE_RANGE_TELEMETRY)
+	target_compile_definitions(kyty_emulator PRIVATE KYTY_TEXTURE_RANGE_TELEMETRY=1)
+endif()
 configure_macos_guest_address_space(kyty_emulator)
 
 set(KYTY_TROPHY_UNLOCK_SOUND "${CMAKE_CURRENT_SOURCE_DIR}/assets/sounds/trophy-unlock.wav")
