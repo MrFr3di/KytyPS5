@@ -184,7 +184,7 @@ void Measure(const Workload& w, const char* name, int repetition, size_t block_s
     churn_ns = Nanoseconds(churn_start);
   }
   sink = sink ^ checksum;
-  std::printf("%s,%s,%d,%zu,%llu,%llu,%llu,%zu,%zu,%llu\n",
+  std::printf("%s,%s,%d,%zu,%llu,%llu,%llu,%zu,%zu,%llu,%llu,%llu\n",
               w.name, name, repetition, block_size,
               static_cast<unsigned long long>(build_ns),
               static_cast<unsigned long long>(query_ns),
