@@ -131,18 +131,18 @@ int Run(int mode, uint32_t owners) {
     if (!index.HasValidSnapshot()) return 4;
   }
   const auto warm_memory = ReadMemory();
-  const auto small = Measure(index, mode, owners, base + owners * 8, 4096);
-  const auto wide = Measure(index, mode, owners, base + owners * 8, 64 * MiB);
+  const auto small_measure = Measure(index, mode, owners, base + owners * 8, 4096);
+  const auto wide_measure = Measure(index, mode, owners, base + owners * 8, 64 * MiB);
   const auto after = ReadMemory();
   if (!index.Validate()) return 5;
   const char* labels[] = {"legacy_vector","legacy_inline","H0_inline",
                           "H1_vector","H1_inline"};
   std::printf("%s,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%zu\n",
               labels[mode],owners,
-              static_cast<unsigned long long>(small.calls),
-              static_cast<unsigned long long>(small.requested),
-              static_cast<unsigned long long>(wide.calls),
-              static_cast<unsigned long long>(wide.requested),
+              static_cast<unsigned long long>(small_measure.calls),
+              static_cast<unsigned long long>(small_measure.requested),
+              static_cast<unsigned long long>(wide_measure.calls),
+              static_cast<unsigned long long>(wide_measure.requested),
               static_cast<unsigned long long>(before.private_usage),
               static_cast<unsigned long long>(registered.private_usage),
               static_cast<unsigned long long>(warm_memory.private_usage),
