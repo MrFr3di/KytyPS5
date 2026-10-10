@@ -244,7 +244,7 @@ void TestSnapshotPayloadCapAndGenerationReset() {
   HybridImageRangeIndex::Config config;
   config.snapshot_after_large_queries = 1;
   config.snapshot_min_pages = 2;
-  config.max_snapshot_payload_bytes = 64;
+  config.max_snapshot_payload_bytes = 128;
   Fixture fixture(config);
   const uint64_t base = uint64_t{1} << 32;
   for (uint32_t id = 1; id <= 40; ++id) {
