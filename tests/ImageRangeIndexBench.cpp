@@ -153,13 +153,22 @@ void Measure(const Workload& w, const char* name, int repetition, size_t block_s
   const auto build_ns = Nanoseconds(build_start);
   size_t inspected = 0;
   uint64_t checksum = 0;
+  std::vector<uint64_t> query_samples;
+  query_samples.reserve(w.queries.size());
   const auto query_start = Clock::now();
   for (const auto& query : w.queries) {
-    const auto ids = index.Find(query, &inspected);
+    size_t query_inspected = 0;
+    const auto one_start = Clock::now();
+    const auto ids = index.Find(query, &query_inspected);
+    query_samples.push_back(Nanoseconds(one_start));
+    inspected += query_inspected;
     checksum += ids.size();
     if (!ids.empty()) checksum ^= uint64_t{ids.front()} << 17;
   }
   const auto query_ns = Nanoseconds(query_start);
+  std::sort(query_samples.begin(), query_samples.end());
+  const auto p50 = query_samples[query_samples.size() / 2];
+  const auto p95 = query_samples[(query_samples.size() * 95 + 99) / 100 - 1];
   if (w.name == nullptr) std::abort();
   uint64_t churn_ns = 0;
   if (w.name[0] == 'c' && w.name[1] == 'h') {
@@ -181,7 +190,9 @@ void Measure(const Workload& w, const char* name, int repetition, size_t block_s
               static_cast<unsigned long long>(query_ns),
               static_cast<unsigned long long>(churn_ns),
               inspected, index.StorageEstimate(),
-              static_cast<unsigned long long>(checksum));
+              static_cast<unsigned long long>(checksum),
+              static_cast<unsigned long long>(p50),
+              static_cast<unsigned long long>(p95));
 }
 
 struct LegacyAdapter : LegacyModel {
@@ -234,7 +245,7 @@ void ConfirmExactSequences(const Workload& w) {
 
 } // namespace
 int main() {
-  std::puts("scenario,variant,repetition,block_size,register_ns,query_ns,churn_ns,inspected_records,estimated_index_bytes,checksum");
+  std::puts("scenario,variant,repetition,block_size,register_ns,query_ns,churn_ns,total_inspected_records,estimated_index_bytes,checksum,query_p50_ns,query_p95_ns");
   for (int scenario = 0; scenario != 5; ++scenario) {
     auto workload = Generate(scenario);
     ConfirmExactSequences(workload);
