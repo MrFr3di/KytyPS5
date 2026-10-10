@@ -576,6 +576,12 @@ add_executable(image_range_index_bench EXCLUDE_FROM_ALL
 target_link_libraries(image_range_index_bench common fmt::fmt)
 target_include_directories(image_range_index_bench PRIVATE ${KYTY_SOURCE_DIR})
 
+add_executable(image_range_hybrid_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/ImageRangeHybridTests.cpp"
+)
+target_link_libraries(image_range_hybrid_tests common fmt::fmt)
+target_include_directories(image_range_hybrid_tests PRIVATE ${KYTY_SOURCE_DIR})
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
@@ -627,6 +633,7 @@ if(BUILD_TESTING)
 	add_test(NAME scalar_provenance COMMAND $<TARGET_FILE:scalar_provenance_tests>)
 	add_test(NAME image_page_table COMMAND $<TARGET_FILE:image_page_table_tests>)
 	add_test(NAME image_range_index COMMAND $<TARGET_FILE:image_range_index_tests>)
+	add_test(NAME image_range_hybrid COMMAND $<TARGET_FILE:image_range_hybrid_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
 	add_test(NAME archive_file COMMAND $<TARGET_FILE:archive_file_tests>)
@@ -704,6 +711,7 @@ if(BUILD_TESTING)
 		scalar_provenance_tests
 		image_page_table_tests
 		image_range_index_tests
+		image_range_hybrid_tests
 		memory_tracker_tests
 		page_manager_tests
 		archive_file_tests
