@@ -37,6 +37,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeHybridBench.cpp /Fe:image_range_hybrid_bench_fast.exe /link Psapi.lib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeAllocationBench.cpp /Fe:image_range_alloc_fast.exe /link Psapi.lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run differential oracle
         shell: pwsh
         run: |
@@ -53,6 +55,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\\image_range_hybrid_bench_fast.exe > range-hybrid-bench-fast.csv
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Measure isolated inline storage allocations
+        shell: pwsh
+        run: |
+          'variant,owners,small_64_new_calls,small_64_requested_bytes,wide_64_new_calls,wide_64_requested_bytes,private_before,private_after_register,private_after_snapshot,private_after_queries,working_set_after,peak_process_working_set,generation,snapshot_builds' | Set-Content -Path range-allocation-fast.csv -Encoding ascii
+          foreach ($mode in 0..4) {
+            foreach ($owners in @(1,16,40)) {
+              .\\image_range_alloc_fast.exe $mode $owners | Add-Content -Path range-allocation-fast.csv -Encoding ascii
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
       - name: Upload fast CPU benchmark evidence
         uses: actions/upload-artifact@v4
         if: always()
@@ -61,6 +73,7 @@ jobs:
           path: |
             range-index-bench-fast.csv
             range-hybrid-bench-fast.csv
+            range-allocation-fast.csv
           if-no-files-found: warn
 
   windows-range-index:
@@ -131,7 +144,7 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench --parallel
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench --parallel
 
       - name: Deterministic differential checks
         shell: cmd
@@ -143,6 +156,16 @@ jobs:
         run: |
           _Build\windows-range\image_range_index_bench.exe > range-index-bench.csv
           _Build\windows-range\image_range_hybrid_bench.exe > range-hybrid-bench.csv
+      - name: Measure CMake isolated allocation ledger
+        shell: pwsh
+        run: |
+          'variant,owners,small_64_new_calls,small_64_requested_bytes,wide_64_new_calls,wide_64_requested_bytes,private_before,private_after_register,private_after_snapshot,private_after_queries,working_set_after,peak_process_working_set,generation,snapshot_builds' | Set-Content -Path range-allocation.csv -Encoding ascii
+          foreach ($mode in 0..4) {
+            foreach ($owners in @(1,16,40)) {
+              .\\_Build\\windows-range\\image_range_allocation_bench.exe $mode $owners | Add-Content -Path range-allocation.csv -Encoding ascii
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
 
       - name: Upload machine and test evidence
         if: always()
@@ -153,4 +176,5 @@ jobs:
             runner-details.txt
             range-index-bench.csv
             range-hybrid-bench.csv
+            range-allocation.csv
           if-no-files-found: warn
