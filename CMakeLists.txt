@@ -569,6 +569,13 @@ add_executable(image_range_index_tests EXCLUDE_FROM_ALL
 )
 target_include_directories(image_range_index_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# CPU-only A/B/C workload comparison (results are evidence, not CTest gates).
+add_executable(image_range_index_bench EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/ImageRangeIndexBench.cpp"
+)
+target_link_libraries(image_range_index_bench common fmt::fmt)
+target_include_directories(image_range_index_bench PRIVATE ${KYTY_SOURCE_DIR})
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
