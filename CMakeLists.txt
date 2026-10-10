@@ -630,6 +630,13 @@ add_executable(texture_range_telemetry_tests EXCLUDE_FROM_ALL
 )
 target_include_directories(texture_range_telemetry_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# S4-B4: separate native SlotId-aware sidecar with canonical page-table oracle.
+add_executable(native_lazy_range_sidecar_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/NativeLazyRangeSidecarTests.cpp"
+)
+target_link_libraries(native_lazy_range_sidecar_tests common fmt::fmt)
+target_include_directories(native_lazy_range_sidecar_tests PRIVATE ${KYTY_SOURCE_DIR})
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
@@ -684,6 +691,7 @@ if(BUILD_TESTING)
 	add_test(NAME image_range_hybrid COMMAND $<TARGET_FILE:image_range_hybrid_tests>)
 	add_test(NAME image_range_native_id COMMAND $<TARGET_FILE:image_range_native_id_tests>)
 	add_test(NAME texture_range_telemetry COMMAND $<TARGET_FILE:texture_range_telemetry_tests>)
+	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
 	add_test(NAME archive_file COMMAND $<TARGET_FILE:archive_file_tests>)
@@ -764,6 +772,7 @@ if(BUILD_TESTING)
 		image_range_hybrid_tests
 		image_range_native_id_tests
 		texture_range_telemetry_tests
+		native_lazy_range_sidecar_tests
 		memory_tracker_tests
 		page_manager_tests
 		archive_file_tests
