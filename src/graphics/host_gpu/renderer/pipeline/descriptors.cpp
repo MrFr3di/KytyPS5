@@ -512,6 +512,10 @@ TextureBinding RenderExecutor::ResolveTexture(const ShaderRecompiler::IR::ImageR
 	}
 
 	auto& texture_cache = m_context.GetTextureCache();
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	TextureWorkloadAttribution::Scope workload(texture_cache.m_workload_telemetry,
+	    TextureWorkloadAttribution::Stage::ResolveTexture, texture_cache.m_workload_telemetry_enabled);
+#endif
 	if (descriptor.IsNull()) {
 		auto       desc = NullTextureDesc(resource, storage ? TextureCache::BindingType::Storage
 		                                                    : TextureCache::BindingType::Texture);
@@ -838,9 +842,25 @@ void RenderExecutor::RebindImages(PreparedBindings& prepared) {
 	auto&       images   = prepared.images;
 	EXIT_IF(images.size() != program.info.images.size());
 	auto& texture_cache = m_context.GetTextureCache();
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	TextureWorkloadAttribution::Scope workload(texture_cache.m_workload_telemetry,
+	    TextureWorkloadAttribution::Stage::RebindImages, texture_cache.m_workload_telemetry_enabled);
+#endif
 	// Acquire each view before a later overlapping descriptor can replace its image.
 	for (uint32_t i = 0; i < program.info.images.size(); i++) {
 		const auto old_image = texture_cache.m_slot_images.try_get(images[i].image_id);
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+		if (texture_cache.m_workload_telemetry_enabled) {
+			const auto reason = old_image == nullptr
+			    ? TextureWorkloadAttribution::Event::RebindMissing
+			    : (!old_image->registered && !old_image->info.data.Empty())
+			        ? TextureWorkloadAttribution::Event::RebindUnregistered
+			        : old_image->binding.needs_rebind
+			            ? TextureWorkloadAttribution::Event::RebindNeeded
+			            : TextureWorkloadAttribution::Event::RebindReuse;
+			texture_cache.m_workload_telemetry.Count(reason);
+		}
+#endif
 		if (old_image == nullptr || (!old_image->registered && !old_image->info.data.Empty()) ||
 		    old_image->binding.needs_rebind) {
 			if (old_image != nullptr) {
@@ -916,6 +936,12 @@ void RenderExecutor::CommitBindings(CommandBuffer&                     buffer,
                                     const PipelineCache::Pipeline&     pipeline,
                                     std::span<PreparedBindings* const> prepared_bindings) {
 	KYTY_PROFILER_FUNCTION();
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	auto& texture_cache_for_metrics = m_context.GetTextureCache();
+	TextureWorkloadAttribution::Scope workload(texture_cache_for_metrics.m_workload_telemetry,
+	    TextureWorkloadAttribution::Stage::DescriptorCommit,
+	    texture_cache_for_metrics.m_workload_telemetry_enabled);
+#endif
 	auto   vk_buffer        = buffer.Handle();
 	size_t image_descriptor_count = 0;
 	size_t write_count      = 0;
@@ -1142,10 +1168,20 @@ void RenderExecutor::CommitBindings(CommandBuffer&                     buffer,
 	if (!m_descriptor_writes.empty()) {
 		EXIT_IF(pipeline.descriptor_set_layout == nullptr);
 		if (pipeline.uses_push_descriptors) {
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+			if (texture_cache_for_metrics.m_workload_telemetry_enabled)
+				texture_cache_for_metrics.m_workload_telemetry.Count(
+				    TextureWorkloadAttribution::Event::DescriptorPushWrites, m_descriptor_writes.size());
+#endif
 			vk_buffer.pushDescriptorSetKHR(pipeline_bind_point, pipeline.pipeline_layout, 0,
 			                               static_cast<uint32_t>(m_descriptor_writes.size()),
 			                               m_descriptor_writes.data());
 		} else {
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+			if (texture_cache_for_metrics.m_workload_telemetry_enabled)
+				texture_cache_for_metrics.m_workload_telemetry.Count(
+				    TextureWorkloadAttribution::Event::DescriptorSetWrites, m_descriptor_writes.size());
+#endif
 			const auto set = m_context.GetDescriptorHeap().Commit(pipeline.descriptor_set_layout);
 			for (auto& write: m_descriptor_writes) {
 				write.dstSet = set;
