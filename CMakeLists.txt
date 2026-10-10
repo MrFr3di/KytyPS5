@@ -582,6 +582,15 @@ add_executable(image_range_hybrid_tests EXCLUDE_FROM_ALL
 target_link_libraries(image_range_hybrid_tests common fmt::fmt)
 target_include_directories(image_range_hybrid_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+add_executable(image_range_hybrid_bench EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/ImageRangeHybridBench.cpp"
+)
+target_link_libraries(image_range_hybrid_bench common fmt::fmt)
+if(WIN32)
+	target_link_libraries(image_range_hybrid_bench psapi)
+endif()
+target_include_directories(image_range_hybrid_bench PRIVATE ${KYTY_SOURCE_DIR})
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
