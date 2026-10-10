@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: texture-range-index-${{ github.ref }}
+  group: texture-range-index-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
