@@ -8,6 +8,9 @@
 #include "graphics/host_gpu/pageManager.h"
 #include "graphics/host_gpu/regionManager.h"
 #include "graphics/host_gpu/renderer/cache/multiLevelPageTable.h"
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+#include "graphics/host_gpu/renderer/cache/textureWorkloadAttribution.h"
+#endif
 #if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
 #include "graphics/host_gpu/renderer/cache/textureRangeTelemetry.h"
 #endif
@@ -183,6 +186,11 @@ private:
 	// Optional diagnostic state; all callers are serialized by m_lock.
 	mutable TextureRangeTelemetry m_range_telemetry;
 	bool                          m_range_telemetry_enabled = false;
+#endif
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	// Diagnostic-only; bounded atomic counters, no guest addresses or dynamic traces.
+	mutable TextureWorkloadAttribution m_workload_telemetry;
+	bool m_workload_telemetry_enabled = false;
 #endif
 	bool             m_readback_linear_images = false;
 
