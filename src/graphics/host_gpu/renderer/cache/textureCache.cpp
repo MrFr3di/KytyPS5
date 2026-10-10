@@ -21,6 +21,11 @@
 #include <bit>
 #include <cinttypes>
 #include <cstring>
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+#include <chrono>
+#include <cstdlib>
+#include <cstdio>
+#endif
 #include <limits>
 #include <mutex>
 #include <span>
@@ -119,6 +124,12 @@ TextureCache::TextureCache(GraphicContext& graphics, CommandScheduler& scheduler
       m_tiler(graphics, scheduler, buffer_cache.GetUtilityBuffer(MemoryUsage::Stream)),
       m_buffer_cache(buffer_cache),
       m_readback_linear_images(Config::ReadbackLinearImagesEnabled()) {
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+	// Both compile-time and runtime opt-in: no work in regular builds. The
+	// environment variable has to be set explicitly to the literal value '1'.
+	const char* enabled = std::getenv("KYTY_TEXTURE_RANGE_TRACE");
+	m_range_telemetry_enabled = enabled != nullptr && std::strcmp(enabled, "1") == 0;
+#endif
 	if (m_graphics.CanReportMemoryUsage()) {
 		constexpr int64_t GiB = 1024ll * 1024 * 1024;
 		const auto        budget =
@@ -133,6 +144,17 @@ TextureCache::TextureCache(GraphicContext& graphics, CommandScheduler& scheduler
 }
 
 TextureCache::~TextureCache() {
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+	// Dump before unregistering the cache: destructor cleanup would otherwise
+	// fabricate a generation of registrations/unregistrations in the report.
+	// No virtual addresses, descriptors, ImageIds or per-call data are written.
+	if (m_range_telemetry_enabled) {
+		if (auto* file = std::fopen("texture-range-telemetry.csv", "w")) {
+			m_range_telemetry.WriteCsv(file);
+			std::fclose(file);
+		}
+	}
+#endif
 	m_slot_images.ForEach([&](ImageId id, const Image& image) {
 		if (image.registered) {
 			UnregisterImage(id);
@@ -214,6 +236,11 @@ void TextureCache::RegisterImage(ImageId id) {
 	ForEachPage(image.info.data.address, image.info.data.size, [this, id](uint64_t page) {
 		m_image_page_table[page].push_back(id);
 	});
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+	if (m_range_telemetry_enabled) {
+		m_range_telemetry.OnRegister(pages.last_exclusive - pages.first);
+	}
+#endif
 	image.registered = true;
 	image.lru_id     = m_lru_cache.Insert(id, m_gc_tick);
 	m_total_used_memory += image.AccountedSize();
@@ -241,6 +268,11 @@ void TextureCache::UnregisterImage(ImageId id) {
 		EXIT("TextureCache: image accounting underflow\n");
 	}
 	m_total_used_memory -= accounted;
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+	if (m_range_telemetry_enabled) {
+		m_range_telemetry.OnUnregister(pages.last_exclusive - pages.first);
+	}
+#endif
 	image.registered = false;
 }
 
@@ -423,8 +455,16 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
                                                         bool page_overlap) const {
 	ImagePageTable::PageRange pages {};
 	if (!ImagePageTable::TryGetPageRange(address, size, pages)) {
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+		if (m_range_telemetry_enabled) m_range_telemetry.OnInvalidQuery();
+#endif
 		return {};
 	}
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+	uint64_t inspected_owners = 0;
+	std::chrono::steady_clock::time_point query_start {};
+	if (m_range_telemetry_enabled) query_start = std::chrono::steady_clock::now();
+#endif
 
 	uint32_t query_epoch = ++m_image_query_epoch;
 	if (query_epoch == 0) {
@@ -439,6 +479,9 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 			return;
 		}
 		owners->ForEach([&](ImageId id) {
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+			if (m_range_telemetry_enabled) ++inspected_owners;
+#endif
 			auto* image = m_slot_images.try_get(id);
 			if (image == nullptr) {
 				return;
@@ -452,6 +495,15 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 			}
 		});
 	});
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+	if (m_range_telemetry_enabled) {
+		const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+		    std::chrono::steady_clock::now() - query_start).count();
+		m_range_telemetry.OnQuery(pages.last_exclusive - pages.first, page_overlap,
+		                          inspected_owners, result.size(),
+		                          static_cast<uint64_t>(elapsed));
+	}
+#endif
 	return result;
 }
 
