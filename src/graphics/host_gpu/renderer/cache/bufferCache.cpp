@@ -22,6 +22,14 @@
 
 namespace Libs::Graphics {
 
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+#define KYTY_BUFFER_WORKLOAD_SCOPE(stage_name) TextureWorkloadAttribution::Scope kyty_workload_scope(m_texture_cache.m_workload_telemetry, TextureWorkloadAttribution::Stage::stage_name, m_texture_cache.m_workload_telemetry_enabled)
+#define KYTY_BUFFER_WORKLOAD_BYTES(event_name, value) do { if (m_texture_cache.m_workload_telemetry_enabled) m_texture_cache.m_workload_telemetry.Count(TextureWorkloadAttribution::Event::event_name, (value)); } while (false)
+#else
+#define KYTY_BUFFER_WORKLOAD_SCOPE(stage_name)
+#define KYTY_BUFFER_WORKLOAD_BYTES(event_name, value)
+#endif
+
 namespace {
 
 constexpr uint64_t MiB           = 1024 * 1024;
@@ -139,6 +147,7 @@ void BufferCache::DeleteBuffer(BufferId id) {
 
 template <bool async>
 bool BufferCache::DownloadBufferMemory(Buffer& buffer, uint64_t vaddr, uint64_t size) {
+	KYTY_BUFFER_WORKLOAD_SCOPE(BufferDownload);
 	std::vector<vk::BufferCopy> copies;
 	uint64_t                    total_size     = 0;
 	const auto                  buffer_address = buffer.CpuAddress();
@@ -156,6 +165,7 @@ bool BufferCache::DownloadBufferMemory(Buffer& buffer, uint64_t vaddr, uint64_t 
 	if (copies.empty()) {
 		return false;
 	}
+	KYTY_BUFFER_WORKLOAD_BYTES(BufferReadbackPackedBytes, total_size);
 
 	auto [mapped, offset] = m_download_buffer.Map(total_size, 64);
 	std::unique_ptr<Buffer> temporary;
@@ -399,6 +409,7 @@ BufferId BufferCache::CreateBuffer(uint64_t vaddr, uint64_t size) {
 
 bool BufferCache::SynchronizeBuffer(Buffer& buffer, uint64_t vaddr, uint64_t size, bool is_written,
                                     bool is_texel_buffer) {
+	KYTY_BUFFER_WORKLOAD_SCOPE(BufferSynchronize);
 	std::vector<vk::BufferCopy> copies;
 	uint64_t                    total_size = 0;
 	vk::Buffer                  source;
@@ -443,9 +454,11 @@ bool BufferCache::SynchronizeBuffer(Buffer& buffer, uint64_t vaddr, uint64_t siz
 
 vk::Buffer BufferCache::UploadCopies(Buffer& buffer, std::span<vk::BufferCopy> copies,
                                      uint64_t total_size) {
+	KYTY_BUFFER_WORKLOAD_SCOPE(BufferUpload);
 	if (copies.empty()) {
 		return nullptr;
 	}
+	KYTY_BUFFER_WORKLOAD_BYTES(BufferUploadStagedBytes, total_size);
 
 	auto [mapped, base_offset] = m_staging_buffer.Map(total_size, 4);
 	if (mapped != nullptr) {
@@ -474,6 +487,7 @@ vk::Buffer BufferCache::UploadCopies(Buffer& buffer, std::span<vk::BufferCopy> c
 std::pair<Buffer*, uint64_t> BufferCache::ObtainBuffer(uint64_t vaddr, uint64_t size,
                                                        bool is_written, bool is_texel_buffer,
                                                        BufferId id) {
+	KYTY_BUFFER_WORKLOAD_SCOPE(BufferAcquire);
 	auto& command = m_scheduler.Current();
 	if (command.IsInvalid() || !GuestRange {vaddr, size}.Valid()) {
 		EXIT("BufferCache: buffer request requires a recording command buffer\n");
@@ -616,6 +630,7 @@ bool BufferCache::IsRegionCpuModified(uint64_t vaddr, uint64_t size) {
 }
 
 void BufferCache::RunGarbageCollector() {
+	KYTY_BUFFER_WORKLOAD_SCOPE(BufferGarbageCollect);
 	const auto tick = m_gc_tick++;
 	if (m_graphics.CanReportMemoryUsage()) {
 		m_total_used_memory = m_graphics.GetDeviceMemoryUsage();
