@@ -41,6 +41,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeColdMixBench.cpp /Fe:image_range_cold_mix_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeHeapLedgerBench.cpp /Fe:image_range_heap_ledger_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run differential oracle
         shell: pwsh
         run: |
@@ -69,6 +71,17 @@ jobs:
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             }
           }
+      - name: Isolated C++ heap high-water across owner capacities
+        shell: pwsh
+        run: |
+          'variant,owners,live_after_registration,live_after_snapshot,live_after_queries,peak_after_registration,peak_lifetime_bytes,allocation_calls,free_calls,requested_total_bytes,observed_hits,snapshot_builds,storage_estimate_bytes' | Set-Content -Path range-heap-ledger-fast.csv -Encoding ascii
+          foreach ($variant in 0..2) {
+            foreach ($owners in @(1,16,40,256)) {
+              .\\image_range_heap_ledger_fast.exe $variant $owners | Add-Content -Path range-heap-ledger-fast.csv -Encoding ascii
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
+
       - name: Upload fast CPU benchmark evidence
         uses: actions/upload-artifact@v4
         if: always()
@@ -79,6 +92,7 @@ jobs:
             range-hybrid-bench-fast.csv
             range-allocation-fast.csv
             range-cold-mix-fast.csv
+            range-heap-ledger-fast.csv
           if-no-files-found: warn
 
   windows-range-index:
@@ -149,7 +163,7 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
@@ -169,6 +183,17 @@ jobs:
           foreach ($mode in 0..4) {
             foreach ($owners in @(1,16,40)) {
               .\\_Build\\windows-range\\image_range_allocation_bench.exe $mode $owners | Add-Content -Path range-allocation.csv -Encoding ascii
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
+
+      - name: CMake isolated heap lifecycle ledger
+        shell: pwsh
+        run: |
+          'variant,owners,live_after_registration,live_after_snapshot,live_after_queries,peak_after_registration,peak_lifetime_bytes,allocation_calls,free_calls,requested_total_bytes,observed_hits,snapshot_builds,storage_estimate_bytes' | Set-Content -Path range-heap-ledger.csv -Encoding ascii
+          foreach ($variant in 0..2) {
+            foreach ($owners in @(1,16,40,256)) {
+              .\\_Build\\windows-range\\image_range_heap_ledger_bench.exe $variant $owners | Add-Content -Path range-heap-ledger.csv -Encoding ascii
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             }
           }
@@ -196,4 +221,5 @@ jobs:
             range-hybrid-bench.csv
             range-allocation.csv
             range-cold-mix.csv
+            range-heap-ledger.csv
           if-no-files-found: warn
