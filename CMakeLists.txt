@@ -591,6 +591,15 @@ if(WIN32)
 endif()
 target_include_directories(image_range_hybrid_bench PRIVATE ${KYTY_SOURCE_DIR})
 
+# S3-C: standalone isolated-process Windows allocation/memory replay.
+add_executable(image_range_allocation_bench EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/ImageRangeAllocationBench.cpp"
+)
+target_include_directories(image_range_allocation_bench PRIVATE ${KYTY_SOURCE_DIR})
+if(WIN32)
+	target_link_libraries(image_range_allocation_bench psapi)
+endif()
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
