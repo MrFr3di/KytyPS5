@@ -79,6 +79,26 @@ attempts or a GPU frame counter. This telemetry is a diagnostic build and
 adds clock reads and accounting to the measured path; any baseline vs H1
 performance benchmark must be re-run under matched instrumentation settings.
 
+## Offline inspection
+
+After a normal emulator exit, use the stdlib-only validator/analyzer on the
+generated CSV:
+
+```powershell
+python scripts/analyze_texture_range_telemetry.py .\\texture-range-telemetry.csv
+python scripts/analyze_texture_range_telemetry.py --json .\\texture-range-telemetry.csv
+```
+
+The tool verifies histogram sums, time sums, registration-generation counts,
+and metric types. It reports the fraction of *index calls* spanning eight or
+more coarse pages and the fraction of query-active, completed generations
+reaching eight such calls. The open generation is handled separately.
+
+Its decision is intentionally always `INSUFFICIENT_FOR_PRODUCTION_GO`, since
+a single aggregate CSV cannot establish descriptor-cache hit rate, individual
+generation distribution, actual H1 savings, or real-game FPS. The analyzer
+must not be turned into an automatic production activation rule.
+
 ## Decision protocol
 
 Capture multiple representative gameplay segments and document separate
