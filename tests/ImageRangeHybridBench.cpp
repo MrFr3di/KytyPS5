@@ -102,9 +102,9 @@ uint64_t Signature(const std::vector<uint32_t>& ids) {
 HybridImageRangeIndex::Config Config(int variant) {
   HybridImageRangeIndex::Config c;
   c.snapshot_min_pages = 8;
-  c.snapshot_after_large_queries = 8;
+  c.snapshot_after_large_queries = variant == 2 ? 8 : variant == 3 ? 16 : 32;
   c.block_size = 64;
-  c.allow_snapshot = variant == 2;
+  c.allow_snapshot = variant >= 2;
   c.skip_empty_buckets = variant != 0;
   return c;
 }
@@ -154,7 +154,7 @@ Result Replay(const Workload& workload, int variant) {
   return result;
 }
 void Emit(const Workload& w, int repetition, int variant, const Result& r) {
-  const char* names[] = {"legacy","H0_bucket_skip","H1_lazy_snapshot"};
+  const char* names[] = {"legacy","H0_bucket_skip","H1_after8","H1_after16","H1_after32"};
   std::printf("%s,%u,%u,%d,%s,%llu,%llu,%llu,%llu,%llu,%zu,%zu,%zu,%zu,%zu,%zu,%llu\n",
               w.sparse?"sparse":"dense", w.wide_percent, w.churn_interval, repetition,
               names[variant],
@@ -165,31 +165,34 @@ void Emit(const Workload& w, int repetition, int variant, const Result& r) {
               static_cast<unsigned long long>(r.p95_ns),
               r.visited_pages, r.visited_owners, r.visited_snapshot_records,
               r.sorted_candidates, r.build_records, r.snapshot_builds,
-              static_cast<unsigned long long>(r.storage_estimate_bytes));
+              static_cast<unsigned long long>(r.storage_estimate_bytes),
+              static_cast<unsigned long long>(r.working_set_bytes));
 }
 } // namespace
 
 int main() {
-  std::puts("scenario,wide_percent,churn_every_queries,repetition,variant,trace_ns,query_ns,mutation_ns,lookup_p50_ns,lookup_p95_ns,visited_pages_total,visited_owners_total,visited_snapshot_records_total,sort_candidates_total,snapshot_build_records_total,snapshot_builds,index_storage_estimate_bytes");
+  std::puts("scenario,wide_percent,churn_every_queries,repetition,variant,trace_ns,query_ns,mutation_ns,lookup_p50_ns,lookup_p95_ns,visited_pages_total,visited_owners_total,visited_snapshot_records_total,sort_candidates_total,snapshot_build_records_total,snapshot_builds,index_storage_estimate_bytes,process_working_set_bytes");
   for (const bool sparse : {false, true}) {
     for (const uint32_t wide : {0u, 10u, 50u, 100u}) {
       for (const uint32_t churn : {0u, 16u, 128u}) {
         const auto w = Generate(sparse, wide, churn);
-        for (int repetition = 0; repetition < 5; ++repetition) {
-          Result result[3];
+        for (int repetition = 0; repetition < 9; ++repetition) {
+          Result result[5];
           // Rotate trial order, compare exact ordered fingerprints after timings.
-          for (int j = 0; j < 3; ++j) {
-            const int variant = (j + repetition) % 3;
+          for (int j = 0; j < 5; ++j) {
+            const int variant = (j + repetition) % 5;
             result[variant] = Replay(w, variant);
           }
           if (result[0].result_signatures != result[1].result_signatures ||
-              result[0].result_signatures != result[2].result_signatures) {
+              result[0].result_signatures != result[2].result_signatures ||
+              result[0].result_signatures != result[3].result_signatures ||
+              result[0].result_signatures != result[4].result_signatures) {
             std::fprintf(stderr,
               "Hybrid benchmark differential mismatch sparse=%d wide=%u churn=%u\n",
               int(sparse), wide, churn);
             return 2;
           }
-          for (int variant = 0; variant < 3; ++variant) Emit(w, repetition, variant, result[variant]);
+          for (int variant = 0; variant < 5; ++variant) Emit(w, repetition, variant, result[variant]);
         }
       }
     }
