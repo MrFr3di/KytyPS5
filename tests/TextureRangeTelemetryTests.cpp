@@ -34,10 +34,16 @@ void TestBinsAndGenerations() {
             m.Data().generations_with_queries == 1 &&
             m.Data().max_large_queries_per_generation == 4 &&
             m.Data().active_images == 0, "generation closing");
-  for (int i = 0; i < 8; ++i) m.OnQuery(8, false, 0, 0, 1);
+  for (int i = 0; i < 10; ++i) m.OnQuery(8, false, 0, 0, 1);
   m.OnRegister(2);
   Check(m.Data().generations_with_eight_large_queries == 1 &&
-            m.Data().max_large_queries_per_generation == 8,
+            m.Data().max_large_queries_per_generation == 10,
+        "completed qualifying generation");
+  Check(m.Data().completed_generation_large_queries == 14 &&
+            m.Data().completed_generation_large_queries_after_eight == 2 &&
+            m.Data().generation_large_query_bins[0] == 1 &&
+            m.Data().generation_large_query_bins[3] == 1 &&
+            m.Data().generation_large_query_bins[4] == 1,
         "completed qualifying generation");
   Check(m.Data().max_active_images == 1 &&
             m.Data().registered_pages == 5 &&
