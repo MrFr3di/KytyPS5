@@ -13,6 +13,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  range-standalone:
+    name: Windows x64 - pure C++20 differential fast gate
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - name: Checkout feature branch only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup clang-cl
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Build independent oracle and candidate tests
+        shell: pwsh
+        run: |
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I src tests/ImageRangeIndexTests.cpp /Fe:image_range_tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run differential oracle
+        shell: pwsh
+        run: |
+          .\\image_range_tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   windows-range-index:
     name: Windows x64 - differential oracle and index candidates
     runs-on: windows-2022
