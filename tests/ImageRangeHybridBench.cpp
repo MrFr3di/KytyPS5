@@ -155,7 +155,7 @@ Result Replay(const Workload& workload, int variant) {
 }
 void Emit(const Workload& w, int repetition, int variant, const Result& r) {
   const char* names[] = {"legacy","H0_bucket_skip","H1_after8","H1_after16","H1_after32"};
-  std::printf("%s,%u,%u,%d,%s,%llu,%llu,%llu,%llu,%llu,%zu,%zu,%zu,%zu,%zu,%zu,%llu\n",
+  std::printf("%s,%u,%u,%d,%s,%llu,%llu,%llu,%llu,%llu,%zu,%zu,%zu,%zu,%zu,%zu,%llu,%llu\n",
               w.sparse?"sparse":"dense", w.wide_percent, w.churn_interval, repetition,
               names[variant],
               static_cast<unsigned long long>(r.trace_ns),
