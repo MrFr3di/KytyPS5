@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: texture-range-index-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   windows-range-index:
@@ -91,12 +91,14 @@ jobs:
       - name: A/B/C deterministic CPU replay
         shell: cmd
         run: |
-          _Build\\windows-range\\image_range_index_bench.exe > range-index-bench.csv
+          _Build\windows-range\image_range_index_bench.exe > range-index-bench.csv
 
       - name: Upload machine and test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: texture-range-index-windows-${{ github.sha }}
-          path: |\n            runner-details.txt\n            range-index-bench.csv
+          path: |
+            runner-details.txt
+            range-index-bench.csv
           if-no-files-found: warn
