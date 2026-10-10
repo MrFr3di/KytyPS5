@@ -115,7 +115,8 @@ public:
            Table::kFirstLevelEntries * sizeof(void*) +
            m_live.size() * (sizeof(Live) + sizeof(uint32_t) + 2 * sizeof(void*)) +
            m_snapshot.capacity() * sizeof(ImageRangeRecord) +
-           m_block_max.capacity() * sizeof(uint32_t);
+           m_block_max.capacity() * sizeof(uint32_t) +
+           m_query_hits.capacity() * sizeof(ImageRangeDetail::Hit);
   }
 
   [[nodiscard]] bool Validate() const {
@@ -244,9 +245,12 @@ private:
     const size_t groups = count / m_config.block_size +
                           (count % m_config.block_size != 0 ? 1 : 0);
     // Check arithmetic before allocation; metadata is charged separately.
-    if (count > (std::numeric_limits<size_t>::max() -
-                 groups * sizeof(uint32_t)) / sizeof(ImageRangeRecord) ||
-        count * sizeof(ImageRangeRecord) +
+    constexpr size_t kPerOwner = sizeof(ImageRangeRecord) +
+                                 sizeof(ImageRangeDetail::Hit);
+    if (groups > std::numeric_limits<size_t>::max() / sizeof(uint32_t) ||
+        count > (std::numeric_limits<size_t>::max() -
+                 groups * sizeof(uint32_t)) / kPerOwner ||
+        count * kPerOwner +
                 groups * sizeof(uint32_t) > m_config.max_snapshot_payload_bytes) {
       m_snapshot_cap_rejected = true;
       ++m_snapshot_cap_denials;
@@ -256,6 +260,11 @@ private:
     m_snapshot.reserve(count);
     for (const auto& item : m_live) m_snapshot.push_back(item.second.record);
     std::sort(m_snapshot.begin(), m_snapshot.end(), ImageRangeDetail::Earlier);
+    // Under the same TextureCache lock, query scratch can be reused safely.
+    // The standalone experiment is intentionally single-threaded. Its payload
+    // is explicitly charged to the admission budget and storage estimate.
+    m_query_hits.clear();
+    m_query_hits.reserve(count);
     m_block_max.clear();
     m_block_max.reserve(groups);
     for (size_t base = 0; base < m_snapshot.size(); base += m_config.block_size) {
@@ -274,9 +283,10 @@ private:
   template <typename Output>
   [[nodiscard]] Output SnapshotScan(uint32_t first, uint32_t last,
                                                     uint64_t address, uint64_t end,
-                                                    bool page_overlap, QueryStats* stats) const {
+                                                    bool page_overlap, QueryStats* stats) {
     if (stats) stats->path = QueryPath::Snapshot;
-    std::vector<ImageRangeDetail::Hit> hits;
+    m_query_hits.clear();
+    auto& hits = m_query_hits;
     for (size_t block = 0; block < m_block_max.size(); ++block) {
       const size_t start = block * m_config.block_size;
       if (m_snapshot[start].first_page >= last) break;
@@ -308,6 +318,8 @@ private:
   std::unordered_map<uint32_t, Live> m_live;
   std::vector<ImageRangeRecord> m_snapshot;
   std::vector<uint32_t> m_block_max;
+  // Reused candidate-sort scratch; queries are serialized by the caller.
+  std::vector<ImageRangeDetail::Hit> m_query_hits;
   uint64_t m_next_sequence = 1;
   uint64_t m_generation = 1;
   uint64_t m_snapshot_generation = 0;
