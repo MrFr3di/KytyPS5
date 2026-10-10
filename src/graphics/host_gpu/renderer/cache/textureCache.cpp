@@ -26,6 +26,10 @@
 #include <cstdlib>
 #include <cstdio>
 #endif
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+#include <cstdlib>
+#include <cstdio>
+#endif
 #include <limits>
 #include <mutex>
 #include <span>
@@ -33,6 +37,12 @@
 #include <vulkan/vulkan_format_traits.hpp>
 
 namespace Libs::Graphics {
+
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+#define KYTY_TEXTURE_WORKLOAD_SCOPE(stage_name) TextureWorkloadAttribution::Scope kyty_workload_scope(m_workload_telemetry, TextureWorkloadAttribution::Stage::stage_name, m_workload_telemetry_enabled)
+#else
+#define KYTY_TEXTURE_WORKLOAD_SCOPE(stage_name)
+#endif
 
 namespace {
 
@@ -130,6 +140,10 @@ TextureCache::TextureCache(GraphicContext& graphics, CommandScheduler& scheduler
 	const char* enabled = std::getenv("KYTY_TEXTURE_RANGE_TRACE");
 	m_range_telemetry_enabled = enabled != nullptr && std::strcmp(enabled, "1") == 0;
 #endif
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	const char* workload_enabled = std::getenv("KYTY_TEXTURE_WORKLOAD_TRACE");
+	m_workload_telemetry_enabled = workload_enabled != nullptr && std::strcmp(workload_enabled, "1") == 0;
+#endif
 	if (m_graphics.CanReportMemoryUsage()) {
 		constexpr int64_t GiB = 1024ll * 1024 * 1024;
 		const auto        budget =
@@ -151,6 +165,15 @@ TextureCache::~TextureCache() {
 	if (m_range_telemetry_enabled) {
 		if (auto* file = std::fopen("texture-range-telemetry.csv", "w")) {
 			m_range_telemetry.WriteCsv(file);
+			std::fclose(file);
+		}
+	}
+#endif
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	// Dump before teardown/GC can bias the counters; no per-query contents.
+	if (m_workload_telemetry_enabled) {
+		if (auto* file = std::fopen("texture-workload-attribution.csv", "w")) {
+			m_workload_telemetry.WriteCsv(file);
 			std::fclose(file);
 		}
 	}
@@ -225,6 +248,7 @@ ImageId TextureCache::InsertImage(const ImageInfo& info) {
 }
 
 void TextureCache::RegisterImage(ImageId id) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(RegisterImage);
 	auto& image = m_slot_images[id];
 	if (image.registered || image.info.data.Empty()) {
 		EXIT("TextureCache: invalid image registration\n");
@@ -247,6 +271,7 @@ void TextureCache::RegisterImage(ImageId id) {
 }
 
 void TextureCache::UnregisterImage(ImageId id) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(UnregisterImage);
 	auto& image = m_slot_images[id];
 	if (!image.registered) {
 		return;
@@ -453,6 +478,7 @@ void TextureCache::TrackImageDownload(ImageId id, Image& image) {
 
 TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64_t size,
                                                         bool page_overlap) const {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(RegionLookup);
 	ImagePageTable::PageRange pages {};
 	if (!ImagePageTable::TryGetPageRange(address, size, pages)) {
 #if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
@@ -641,6 +667,7 @@ bool TextureCache::CopyD16(Image& destination, Image& source) {
 }
 
 void TextureCache::CopyImage(ImageId destination_id, ImageId source_id) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(ImageCopy);
 	RefreshCopySource(source_id);
 	auto& destination = m_slot_images[destination_id];
 	auto& source      = m_slot_images[source_id];
@@ -806,6 +833,7 @@ ImageId TextureCache::ResolveDepthOverlap(const ImageInfo& requested, BindingTyp
 TextureCache::OverlapResult TextureCache::ResolveOverlap(const ImageInfo& requested,
                                                          BindingType binding, ImageId cached_id,
                                                          ImageId merged_id) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(ResolveOverlap);
 	auto owner = m_slot_images.try_get(cached_id);
 	if (owner == nullptr) {
 		return {merged_id};
@@ -1025,6 +1053,7 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 }
 
 void TextureCache::InitializeImage(ImageId id) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(ImageInitialize);
 	auto& image = m_slot_images[id];
 	if (image.info.data.Empty()) {
 		return;
@@ -1126,6 +1155,7 @@ void TextureCache::MaterializeColorClear(ImageId id, const ImageDesc& desc,
 }
 
 void TextureCache::RefreshImage(ImageId id) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(ImageRefresh);
 	auto& image = m_slot_images[id];
 	if (image.depth_id &&
 	    (m_slot_images[image.depth_id].info.metadata.stencil_compressed ||
@@ -1202,6 +1232,7 @@ ImageId TextureCache::AssociateStencil(ImageId depth_id, GuestRange stencil) {
 }
 
 ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(ImageDiscovery);
 	auto& command = m_scheduler.Current();
 	if (command.IsInvalid()) {
 		EXIT("TextureCache: image lookup requires a valid command buffer\n");
@@ -1806,6 +1837,7 @@ bool TextureCache::DownloadImageMemory(ImageId id) {
 }
 
 void TextureCache::InvalidateMemoryFromGPU(uint64_t address, uint64_t size) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(GpuMemoryInvalidate);
 	if (!GuestRange {address, size}.Valid()) {
 		return;
 	}
@@ -1823,6 +1855,7 @@ void TextureCache::InvalidateMemoryFromGPU(uint64_t address, uint64_t size) {
 }
 
 void TextureCache::InvalidateCpuAliases(uint64_t address, uint64_t size) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(CpuAliasInvalidate);
 	const auto page_begin = Common::AlignDown(address, TRACKER_PAGE_SIZE);
 	const auto page_end   = Common::AlignUp(address + size, TRACKER_PAGE_SIZE);
 	for (const auto id: FindImagesInRegion(address, size, true)) {
@@ -1915,6 +1948,7 @@ void TextureCache::UnmapMemory(uint64_t address, uint64_t size) {
 }
 
 void TextureCache::RunGarbageCollector() {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(GarbageCollect);
 	std::scoped_lock lock {m_lock};
 	const uint64_t   tick = m_gc_tick++;
 	if (m_graphics.CanReportMemoryUsage()) {
