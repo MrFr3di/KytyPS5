@@ -33,6 +33,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeIndexBench.cpp /Fe:image_range_bench_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeHybridTests.cpp /Fe:image_range_hybrid_tests_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeHybridBench.cpp /Fe:image_range_hybrid_bench_fast.exe /link Psapi.lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run differential oracle
         shell: pwsh
         run: |
@@ -40,17 +44,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\\image_page_table_tests_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\\image_range_hybrid_tests_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run pure CPU A/B/C benchmark
         shell: pwsh
         run: |
           .\\image_range_bench_fast.exe > range-index-bench-fast.csv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\\image_range_hybrid_bench_fast.exe > range-hybrid-bench-fast.csv
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload fast CPU benchmark evidence
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: texture-index-fast-windows-${{ github.sha }}
-          path: range-index-bench-fast.csv
+          path: |
+            range-index-bench-fast.csv
+            range-hybrid-bench-fast.csv
           if-no-files-found: warn
 
   windows-range-index:
@@ -121,17 +131,18 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench --parallel
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench --parallel
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_page_table)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_page_table)$"
 
       - name: A/B/C deterministic CPU replay
         shell: cmd
         run: |
           _Build\windows-range\image_range_index_bench.exe > range-index-bench.csv
+          _Build\windows-range\image_range_hybrid_bench.exe > range-hybrid-bench.csv
 
       - name: Upload machine and test evidence
         if: always()
@@ -141,4 +152,5 @@ jobs:
           path: |
             runner-details.txt
             range-index-bench.csv
+            range-hybrid-bench.csv
           if-no-files-found: warn
