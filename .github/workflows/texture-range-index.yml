@@ -47,6 +47,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I src tests/TextureRangeTelemetryTests.cpp /Fe:texture_range_telemetry_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/NativeLazyRangeSidecarTests.cpp /Fe:native_lazy_range_sidecar_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run differential oracle
         shell: pwsh
         run: |
@@ -57,6 +59,8 @@ jobs:
           .\\image_range_hybrid_tests_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\\texture_range_telemetry_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\\native_lazy_range_sidecar_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run pure CPU A/B/C benchmark
         shell: pwsh
@@ -176,12 +180,12 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests native_lazy_range_sidecar_tests --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|native_lazy_range_sidecar)$"
 
       - name: A/B/C deterministic CPU replay
         shell: cmd
