@@ -88,6 +88,31 @@ public:
 		return true;
 	}
 
+	// H0 research: skip never-allocated second-level buckets on long range scans.
+	// Only allocated buckets are visited. Entries within a bucket may still be empty
+	// (including after all owners have unregistered); callers must check the Entry.
+	// Existing single-page Find() and the production TextureCache are unaffected.
+	template <typename Func>
+	void ForEachAllocatedPageInRange(PageRange range, Func&& func) const {
+		if (range.first >= range.last_exclusive || range.last_exclusive > kPageCount) {
+			return;
+		}
+		const size_t first_bucket = FirstLevelIndex(range.first);
+		const size_t last_bucket = FirstLevelIndex(range.last_exclusive - 1);
+		for (size_t bucket_index = first_bucket; bucket_index <= last_bucket; ++bucket_index) {
+			const auto& bucket = m_first_level[bucket_index];
+			if (bucket == nullptr) {
+				continue;
+			}
+			const size_t bucket_begin = bucket_index * kBucketEntries;
+			const size_t start = std::max(range.first, bucket_begin);
+			const size_t stop = std::min(range.last_exclusive, bucket_begin + kBucketEntries);
+			for (size_t page = start; page < stop; ++page) {
+				func(page, (*bucket)[page - bucket_begin]);
+			}
+		}
+	}
+
 	[[nodiscard]] size_t AllocatedBucketCount() const { return m_allocated_buckets; }
 
 private:
