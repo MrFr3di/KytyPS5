@@ -615,6 +615,13 @@ add_executable(image_range_cold_mix_bench EXCLUDE_FROM_ALL
 target_link_libraries(image_range_cold_mix_bench common fmt::fmt)
 target_include_directories(image_range_cold_mix_bench PRIVATE ${KYTY_SOURCE_DIR})
 
+# S3-C2: independent C++ heap-residency high-water benchmark.
+add_executable(image_range_heap_ledger_bench EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/ImageRangeHeapLedgerBench.cpp"
+)
+target_link_libraries(image_range_heap_ledger_bench common fmt::fmt)
+target_include_directories(image_range_heap_ledger_bench PRIVATE ${KYTY_SOURCE_DIR})
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
