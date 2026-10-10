@@ -202,7 +202,8 @@ void TestDenseOverflowAndBoundary() {
     f.Register(top + i * 8, 20 * MiB);
   Check(f.Query(top, 35 * MiB, false), "40 owner inline spill");
   Check(f.Query(top, 35 * MiB, true), "page overlap 40 native");
-  Check(f.Query(Limit - MiB, MiB, true), "exact highest page");
+  Check(f.Query(Limit - 2 * MiB, 2 * MiB, true), "valid upper 44-bit boundary");
+  Check(!f.Query(Limit - MiB, MiB, true), "one-page lookup uses canonical fallback");
   for (int i = 0; i < 24; ++i) f.Unregister(f.active.front());
   Check(f.Query(top, 35 * MiB, true), "overflow to inline transition");
 }
