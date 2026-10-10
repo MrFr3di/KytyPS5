@@ -601,6 +601,13 @@ if(WIN32)
 	target_link_libraries(image_range_allocation_bench psapi)
 endif()
 
+# S3-C2: exact 64-bit SlotId / InlinePageOwnerList generation contract.
+add_executable(image_range_native_id_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/ImageRangeNativeIdTests.cpp"
+)
+target_link_libraries(image_range_native_id_tests common fmt::fmt)
+target_include_directories(image_range_native_id_tests PRIVATE ${KYTY_SOURCE_DIR})
+
 add_kyty_full_emulator_test(shader_recompiler_compute_tests "${KYTY_TESTS_DIR}/ShaderRecompilerComputeTests.cpp")
 
 set(gpu_test_generated_dir "${PROJECT_BINARY_DIR}/gpu_test_shaders")
@@ -653,6 +660,7 @@ if(BUILD_TESTING)
 	add_test(NAME image_page_table COMMAND $<TARGET_FILE:image_page_table_tests>)
 	add_test(NAME image_range_index COMMAND $<TARGET_FILE:image_range_index_tests>)
 	add_test(NAME image_range_hybrid COMMAND $<TARGET_FILE:image_range_hybrid_tests>)
+	add_test(NAME image_range_native_id COMMAND $<TARGET_FILE:image_range_native_id_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
 	add_test(NAME archive_file COMMAND $<TARGET_FILE:archive_file_tests>)
@@ -731,6 +739,7 @@ if(BUILD_TESTING)
 		image_page_table_tests
 		image_range_index_tests
 		image_range_hybrid_tests
+		image_range_native_id_tests
 		memory_tracker_tests
 		page_manager_tests
 		archive_file_tests
