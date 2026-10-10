@@ -106,9 +106,11 @@ struct Fixture {
   }
   HybridImageRangeIndex::QueryStats Query(uint64_t address, uint64_t size) {
     HybridImageRangeIndex::QueryStats stats;
+    HybridImageRangeIndex::QueryStats first_stats;
     for (bool pages : {false,true}) {
       const auto expected = oracle.Find(address, size, pages);
       const auto actual = hybrid.Find(address, size, pages, &stats);
+      if (!pages) first_stats = stats;
       if (actual != expected) {
         std::fprintf(stderr, "Hybrid mismatch address=%llx size=%llx pages=%d"
                              " expected=%zu actual=%zu generation=%llu snapshot=%zu\n",
@@ -120,7 +122,7 @@ struct Fixture {
         std::abort();
       }
     }
-    return stats;
+    return first_stats;
   }
 };
 
