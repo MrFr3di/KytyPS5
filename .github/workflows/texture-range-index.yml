@@ -9,8 +9,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: texture-range-index-${{ github.sha }}
-  cancel-in-progress: false
+  # Only latest feature-branch push needs a full emulator build.
+  # Preserve earlier evidence in artifacts of already-completed runs.
+  group: texture-range-index-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   range-standalone:
