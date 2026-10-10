@@ -1795,6 +1795,7 @@ bool BufferCache::SynchronizeBufferFromImage(Buffer& buffer, uint64_t vaddr, uin
 }
 
 bool TextureCache::DownloadImageMemory(ImageId id) {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(TextureReadback);
 	auto& image = m_slot_images[id];
 	if (image.depth_id) {
 		return false;
@@ -1803,6 +1804,10 @@ bool TextureCache::DownloadImageMemory(ImageId id) {
 		return false;
 	}
 	const auto range    = image.info.data;
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	if (m_workload_telemetry_enabled)
+		m_workload_telemetry.Count(TextureWorkloadAttribution::Event::TextureReadbackRequestedBytes, range.size);
+#endif
 	auto&      download = m_buffer_cache.GetUtilityBuffer(MemoryUsage::Download);
 	auto [mapped, offset] =
 	    download.Map(range.size, std::max<uint64_t>(image.info.bytes_per_block, 4));
@@ -2009,6 +2014,7 @@ void TextureCache::RunGarbageCollector() {
 }
 
 void TextureCache::ProcessDownloadImages() {
+	KYTY_TEXTURE_WORKLOAD_SCOPE(ProcessReadbacks);
 	std::scoped_lock lock {m_lock};
 	for (const auto id: m_download_images) {
 		const auto owner = m_slot_images.try_get(id);
