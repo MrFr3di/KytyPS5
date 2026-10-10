@@ -240,6 +240,32 @@ void TestH1RandomDifferential() {
   }
 }
 
+void TestSnapshotPayloadCapAndGenerationReset() {
+  HybridImageRangeIndex::Config config;
+  config.snapshot_after_large_queries = 1;
+  config.snapshot_min_pages = 2;
+  config.max_snapshot_payload_bytes = 64;
+  Fixture fixture(config);
+  const uint64_t base = uint64_t{1} << 32;
+  for (uint32_t id = 1; id <= 40; ++id) {
+    fixture.Register(id, base + static_cast<uint64_t>(id) * 8, 4 * kMiB);
+  }
+  for (int i = 0; i < 10; ++i) {
+    fixture.Query(base, 8 * kMiB);
+  }
+  Check(fixture.hybrid.SnapshotCapDenials() == 1,
+        "cap violation must be rejected once per unchanged generation");
+  Check(fixture.hybrid.SnapshotBuilds() == 0 &&
+            !fixture.hybrid.HasValidSnapshot(),
+        "cap rejection must fall back to canonical page table");
+  for (uint32_t id = 2; id <= 40; ++id) fixture.Unregister(id);
+  fixture.Query(base, 8 * kMiB);
+  Check(fixture.hybrid.SnapshotBuilds() == 1 &&
+            fixture.hybrid.HasValidSnapshot(),
+        "new smaller generation may build after previous denial");
+  Check(fixture.hybrid.Validate(), "cap/budget snapshot invariant");
+}
+
 void TestInlineOutputAndOverflow() {
   for (const bool snapshot : {false, true}) {
     for (const uint32_t owners : {1u, 16u, 40u}) {
@@ -288,6 +314,7 @@ int main() {
   TestH1LazyLifecycle();
   TestH1RandomDifferential();
   TestInlineOutputAndOverflow();
+  TestSnapshotPayloadCapAndGenerationReset();
   std::puts("ImageRangeHybridTests: H0/H1 deterministic oracle PASS");
   return 0;
 }
