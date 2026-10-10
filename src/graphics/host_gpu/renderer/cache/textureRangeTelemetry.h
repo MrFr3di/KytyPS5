@@ -33,9 +33,13 @@ public:
     uint64_t completed_generations = 0;
     uint64_t generations_with_eight_large_queries = 0;
     uint64_t max_large_queries_per_generation = 0;
+    uint64_t completed_generation_large_queries = 0;
+    uint64_t completed_generation_large_queries_after_eight = 0;
     uint64_t current_generation_large_queries = 0;
     uint64_t current_generation_queries = 0;
     uint64_t generations_with_queries = 0;
+    // Completed generation histogram: 0, 1, 2-3, 4-7, 8-15, 16-31, 32+.
+    std::array<uint64_t, kPageBins> generation_large_query_bins{};
     std::array<uint64_t, kPageBins> query_page_bins{};
     std::array<uint64_t, kPageBins> query_time_ns_by_page_bin{};
   };
@@ -100,10 +104,20 @@ public:
     emit("generations_with_queries", m_data.generations_with_queries);
     emit("generations_with_eight_large_queries", m_data.generations_with_eight_large_queries);
     emit("max_large_queries_per_completed_generation", m_data.max_large_queries_per_generation);
+    emit("completed_generation_large_queries", m_data.completed_generation_large_queries);
+    emit("completed_generation_large_queries_after_eight",
+         m_data.completed_generation_large_queries_after_eight);
     emit("current_generation_queries", m_data.current_generation_queries);
     emit("current_generation_large_queries", m_data.current_generation_large_queries);
     static constexpr const char* kNames[kPageBins] = {
         "1", "2_3", "4_7", "8_15", "16_63", "64_255", "256_plus"};
+    static constexpr const char* kGenerationNames[kPageBins] = {
+        "0", "1", "2_3", "4_7", "8_15", "16_31", "32_plus"};
+    for (size_t i = 0; i < kPageBins; ++i) {
+      std::fprintf(output, "generation_large_queries_%s,%llu\n",
+                   kGenerationNames[i],
+                   static_cast<unsigned long long>(m_data.generation_large_query_bins[i]));
+    }
     for (size_t i = 0; i < kPageBins; ++i) {
       std::fprintf(output, "query_pages_%s,%llu\n", kNames[i],
                    static_cast<unsigned long long>(m_data.query_page_bins[i]));
@@ -122,6 +136,13 @@ private:
     return 6;
   }
   void FinishGeneration() noexcept {
+    const uint64_t large = m_data.current_generation_large_queries;
+    const size_t bin = large == 0 ? 0 : large == 1 ? 1 :
+                       large <= 3 ? 2 : large <= 7 ? 3 :
+                       large <= 15 ? 4 : large <= 31 ? 5 : 6;
+    ++m_data.generation_large_query_bins[bin];
+    m_data.completed_generation_large_queries += large;
+    if (large > 8) m_data.completed_generation_large_queries_after_eight += large - 8;
     ++m_data.completed_generations;
     m_data.generations_with_queries += (m_data.current_generation_queries != 0);
     m_data.generations_with_eight_large_queries +=
