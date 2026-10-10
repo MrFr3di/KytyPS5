@@ -605,8 +605,8 @@ endif()
 add_executable(image_range_native_id_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/ImageRangeNativeIdTests.cpp"
 )
-target_link_libraries(image_range_native_id_tests common fmt::fmt)
-target_include_directories(image_range_native_id_tests PRIVATE ${KYTY_SOURCE_DIR})
+target_link_libraries(image_range_native_id_tests common fmt::fmt Vulkan::Headers)
+target_include_directories(image_range_native_id_tests PRIVATE ${inc_headers})
 
 # S4-B: simulated descriptor-reuse ratios, not measured game hit rates.
 add_executable(image_range_cold_mix_bench EXCLUDE_FROM_ALL
