@@ -85,33 +85,20 @@ public:
     return true;
   }
 
+  // Standalone vector API used by the original research tests.
   [[nodiscard]] std::vector<uint32_t> Find(uint64_t address, uint64_t size,
                                             bool page_overlap = false,
                                             QueryStats* stats = nullptr) {
-    if (stats) *stats = {};
-    if (!ImageRangeDetail::Valid(address, size)) return {};
-    const uint64_t end = address + size;
-    const uint32_t first = ImageRangeDetail::FirstPage(address);
-    const uint32_t last = ImageRangeDetail::LastPage(end);
-    const uint32_t pages = last - first;
-    if (pages < m_config.snapshot_min_pages) {
-      return PageScan(first, last, address, end, page_overlap, false, stats);
-    }
-    if (m_config.allow_snapshot && m_snapshot_valid && m_snapshot_generation == m_generation) {
-      return SnapshotScan(first, last, address, end, page_overlap, stats);
-    }
-    // Avoid building a snapshot until the unchanged generation has demonstrated
-    // enough qualifying lookups. No eager double-index maintenance on updates.
-    if (m_config.allow_snapshot) {
-      ++m_large_queries_since_mutation;
-      if (m_large_queries_since_mutation >= m_config.snapshot_after_large_queries) {
-        BuildSnapshot();
-        if (stats) stats->snapshot_build_records = m_snapshot.size();
-        return SnapshotScan(first, last, address, end, page_overlap, stats);
-      }
-    }
-    return PageScan(first, last, address, end, page_overlap,
-                    m_config.skip_empty_buckets, stats);
+    return FindTyped<std::vector<uint32_t>>(address, size, page_overlap, stats);
+  }
+
+  // Production-equivalent inline return storage: no heap allocation when
+  // 0..16 ImageIds are produced on the page-scan path. The snapshot path still
+  // materializes and sorts candidate hits and must be charged for that scratch.
+  [[nodiscard]] Owners FindInline(uint64_t address, uint64_t size,
+                                  bool page_overlap = false,
+                                  QueryStats* stats = nullptr) {
+    return FindTyped<Owners>(address, size, page_overlap, stats);
   }
 
   [[nodiscard]] size_t Size() const { return m_live.size(); }
@@ -153,6 +140,34 @@ public:
   }
 
 private:
+  template <typename Output>
+  [[nodiscard]] Output FindTyped(uint64_t address, uint64_t size,
+                                 bool page_overlap, QueryStats* stats) {
+    if (stats) *stats = {};
+    if (!ImageRangeDetail::Valid(address, size)) return {};
+    const uint64_t end = address + size;
+    const uint32_t first = ImageRangeDetail::FirstPage(address);
+    const uint32_t last = ImageRangeDetail::LastPage(end);
+    const uint32_t pages = last - first;
+    if (pages < m_config.snapshot_min_pages) {
+      return PageScan<Output>(first, last, address, end, page_overlap, false, stats);
+    }
+    if (m_config.allow_snapshot && m_snapshot_valid &&
+        m_snapshot_generation == m_generation) {
+      return SnapshotScan<Output>(first, last, address, end, page_overlap, stats);
+    }
+    if (m_config.allow_snapshot) {
+      ++m_large_queries_since_mutation;
+      if (m_large_queries_since_mutation >= m_config.snapshot_after_large_queries) {
+        BuildSnapshot();
+        if (stats) stats->snapshot_build_records = m_snapshot.size();
+        return SnapshotScan<Output>(first, last, address, end, page_overlap, stats);
+      }
+    }
+    return PageScan<Output>(first, last, address, end, page_overlap,
+                            m_config.skip_empty_buckets, stats);
+  }
+
   struct Live {
     explicit Live(ImageRangeRecord r) : record(r) {}
     ImageRangeRecord record;
@@ -175,12 +190,13 @@ private:
     }
     return ++m_query_epoch;
   }
-  [[nodiscard]] std::vector<uint32_t> PageScan(uint32_t first, uint32_t last,
+  template <typename Output>
+  [[nodiscard]] Output PageScan(uint32_t first, uint32_t last,
                                                  uint64_t address, uint64_t end,
                                                  bool page_overlap, bool skip_buckets,
                                                  QueryStats* stats) {
     if (stats) stats->path = skip_buckets ? QueryPath::BucketSkip : QueryPath::Legacy;
-    std::vector<uint32_t> result;
+    Output result;
     const auto epoch = NewEpoch();
     auto visit = [&](uint32_t, const Owners& owners) {
       if (stats) ++stats->visited_pages;
@@ -236,7 +252,8 @@ private:
     ++m_snapshot_builds;
   }
 
-  [[nodiscard]] std::vector<uint32_t> SnapshotScan(uint32_t first, uint32_t last,
+  template <typename Output>
+  [[nodiscard]] Output SnapshotScan(uint32_t first, uint32_t last,
                                                     uint64_t address, uint64_t end,
                                                     bool page_overlap, QueryStats* stats) const {
     if (stats) stats->path = QueryPath::Snapshot;
@@ -258,7 +275,13 @@ private:
       }
     }
     if (stats) stats->sorted_candidates = hits.size();
-    return ImageRangeDetail::Finish(hits);
+    std::sort(hits.begin(), hits.end(), [](const auto& a, const auto& b) {
+      return a.first_hit < b.first_hit ||
+             (a.first_hit == b.first_hit && a.sequence < b.sequence);
+    });
+    Output output;
+    for (const auto& hit : hits) output.push_back(hit.id);
+    return output;
   }
 
   Config m_config;
