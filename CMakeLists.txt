@@ -596,6 +596,7 @@ add_executable(image_range_allocation_bench EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/ImageRangeAllocationBench.cpp"
 )
 target_include_directories(image_range_allocation_bench PRIVATE ${KYTY_SOURCE_DIR})
+target_link_libraries(image_range_allocation_bench common fmt::fmt)
 if(WIN32)
 	target_link_libraries(image_range_allocation_bench psapi)
 endif()
