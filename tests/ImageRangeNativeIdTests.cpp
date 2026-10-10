@@ -70,7 +70,8 @@ void TestInlineCapacityAndOverflow() {
   for (uint32_t i = 0; i < owners.size(); ++i) {
     Check(owners[i] == expected[i], "inline/overflow owner must preserve 64-bit native ID");
   }
-  std::unordered_set<ImageId> unique(owners.begin(), owners.end());
+  std::unordered_set<ImageId> unique;
+  for (ImageId id : owners) unique.insert(id);
   Check(unique.size() == owners.size(), "hash/iterator should preserve all IDs");
   for (uint32_t i = 0; i < 24; ++i) {
     Check(owners.Erase(expected[i]), "remove owners through overflow-to-inline boundary");
