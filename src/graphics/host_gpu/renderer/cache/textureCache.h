@@ -8,6 +8,9 @@
 #include "graphics/host_gpu/pageManager.h"
 #include "graphics/host_gpu/regionManager.h"
 #include "graphics/host_gpu/renderer/cache/multiLevelPageTable.h"
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+#include "graphics/host_gpu/renderer/cache/textureRangeTelemetry.h"
+#endif
 #include "graphics/host_gpu/renderer/image/blitHelper.h"
 #include "graphics/host_gpu/renderer/image/image.h"
 #include "graphics/host_gpu/renderer/image/tiler.h"
@@ -176,6 +179,11 @@ private:
 	uint64_t         m_critical_gc_memory     = 3ull * 1024 * 1024 * 1024;
 	uint64_t         m_gc_tick                = 0;
 	mutable uint32_t m_image_query_epoch      = 0;
+#if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
+	// Optional diagnostic state; all callers are serialized by m_lock.
+	mutable TextureRangeTelemetry m_range_telemetry;
+	bool                          m_range_telemetry_enabled = false;
+#endif
 	bool             m_readback_linear_images = false;
 
 	friend struct TextureCacheTestAccess;
