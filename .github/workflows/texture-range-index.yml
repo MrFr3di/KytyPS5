@@ -39,6 +39,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeAllocationBench.cpp /Fe:image_range_alloc_fast.exe /link Psapi.lib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ImageRangeColdMixBench.cpp /Fe:image_range_cold_mix_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run differential oracle
         shell: pwsh
         run: |
@@ -54,6 +56,8 @@ jobs:
           .\\image_range_bench_fast.exe > range-index-bench-fast.csv
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\\image_range_hybrid_bench_fast.exe > range-hybrid-bench-fast.csv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\\image_range_cold_mix_fast.exe > range-cold-mix-fast.csv
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Measure isolated inline storage allocations
         shell: pwsh
@@ -74,6 +78,7 @@ jobs:
             range-index-bench-fast.csv
             range-hybrid-bench-fast.csv
             range-allocation-fast.csv
+            range-cold-mix-fast.csv
           if-no-files-found: warn
 
   windows-range-index:
@@ -144,18 +149,19 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench --parallel
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_page_table)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table)$"
 
       - name: A/B/C deterministic CPU replay
         shell: cmd
         run: |
           _Build\windows-range\image_range_index_bench.exe > range-index-bench.csv
           _Build\windows-range\image_range_hybrid_bench.exe > range-hybrid-bench.csv
+          _Build\windows-range\image_range_cold_mix_bench.exe > range-cold-mix.csv
       - name: Measure CMake isolated allocation ledger
         shell: pwsh
         run: |
@@ -167,6 +173,18 @@ jobs:
             }
           }
 
+      # Builds *all* emulator C++ source files on a GitHub-hosted Windows runner,
+      # with the Qt launcher disabled. CPU-only CLI smoke avoids Vulkan/GPU.
+      - name: Build complete Windows emulator target
+        shell: cmd
+        run: |
+          cmake --build _Build/windows-range --target kyty_emulator --parallel 3
+
+      - name: Headless emulator CLI smoke test
+        shell: cmd
+        run: |
+          ctest --test-dir _Build/windows-range --output-on-failure --timeout 60 -R "^emulator_user_name_cli$"
+
       - name: Upload machine and test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -177,4 +195,5 @@ jobs:
             range-index-bench.csv
             range-hybrid-bench.csv
             range-allocation.csv
+            range-cold-mix.csv
           if-no-files-found: warn
