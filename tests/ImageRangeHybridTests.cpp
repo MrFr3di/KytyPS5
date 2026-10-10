@@ -242,41 +242,43 @@ void TestH1RandomDifferential() {
 
 void TestInlineOutputAndOverflow() {
   for (const bool snapshot : {false, true}) {
-    HybridImageRangeIndex::Config config;
-    config.snapshot_min_pages = 4;
-    config.snapshot_after_large_queries = 2;
-    config.allow_snapshot = snapshot;
-    Fixture fixture(config);
-    const uint64_t base = uint64_t{1} << 32;
-    // Exercise 0, 1, exactly 16, and >16 owners, including inline spill.
-    for (uint32_t id = 1; id <= 40; ++id) {
-      fixture.Register(id, base + id * 8, 16 * kMiB);
+    for (const uint32_t owners : {1u, 16u, 40u}) {
+      HybridImageRangeIndex::Config config;
+      config.snapshot_min_pages = 4;
+      config.snapshot_after_large_queries = 2;
+      config.allow_snapshot = snapshot;
+      Fixture fixture(config);
+      const uint64_t base = uint64_t{1} << 32;
+      // Exercise 0, 1, exact inline capacity 16, and >16 (overflow).
+      for (uint32_t id = 1; id <= owners; ++id) {
+        fixture.Register(id, base + id * 8, 16 * kMiB);
+      }
+      const auto equal = [&](uint64_t address, uint64_t length, bool page_overlap) {
+        const auto expected = fixture.oracle.Find(address, length, page_overlap);
+        HybridImageRangeIndex::QueryStats stats;
+        const auto actual = fixture.hybrid.FindInline(address, length, page_overlap, &stats);
+        std::vector<uint32_t> observed;
+        for (uint32_t id : actual) observed.push_back(id);
+        Check(observed == expected, "inline ordered 0/1/16/40-owner differential");
+        Check(observed.size() == actual.size(), "inline iterator size");
+      };
+      equal(base - 4 * kMiB, 4096, false);
+      equal(base + 5, 1, false);
+      equal(base + 8, 32 * kMiB, false);
+      equal(base + 8, 32 * kMiB, true);
+      equal(base + 8, 32 * kMiB, false);
+      Check(!snapshot || fixture.hybrid.HasValidSnapshot(), "inline snapshot must build");
+      for (uint32_t id = 2; id <= owners; id += 2) fixture.Unregister(id);
+      equal(base + 8, 32 * kMiB, true);
+      equal(base + 8, 32 * kMiB, false);
+      fixture.Update(1, base + 100 * kMiB, 128);
+      equal(base + 8, 32 * kMiB, false);
+      fixture.Unregister(1);
+      fixture.Register(1, base + 8, 16 * kMiB);
+      equal(base + 8, 32 * kMiB, false);
+      equal(base + 8, 32 * kMiB, true);
+      Check(fixture.hybrid.Validate(), "inline post-churn snapshot validity");
     }
-    const auto equal = [&](uint64_t address, uint64_t length, bool page_overlap) {
-      const auto expected = fixture.oracle.Find(address, length, page_overlap);
-      HybridImageRangeIndex::QueryStats stats;
-      const auto actual = fixture.hybrid.FindInline(address, length, page_overlap, &stats);
-      std::vector<uint32_t> observed;
-      for (uint32_t id : actual) observed.push_back(id);
-      Check(observed == expected, "inline and >16 overflow ordering/semantics");
-      Check(observed.size() == actual.size(), "inline iterator size");
-    };
-    equal(base - 4 * kMiB, 4096, false);
-    equal(base + 5, 1, false);
-    equal(base + 8, 32 * kMiB, false);
-    equal(base + 8, 32 * kMiB, true);
-    equal(base + 8, 32 * kMiB, false);
-    Check(!snapshot || fixture.hybrid.HasValidSnapshot(), "inline snapshot must build");
-    for (uint32_t id = 2; id <= 40; id += 2) fixture.Unregister(id);
-    equal(base + 8, 32 * kMiB, true);
-    equal(base + 8, 32 * kMiB, false);
-    fixture.Update(1, base + 100 * kMiB, 128);
-    equal(base + 8, 32 * kMiB, false);
-    fixture.Unregister(1);
-    fixture.Register(1, base + 8, 16 * kMiB);
-    equal(base + 8, 32 * kMiB, false);
-    equal(base + 8, 32 * kMiB, true);
-    Check(fixture.hybrid.Validate(), "inline post-churn snapshot validity");
   }
 }
 
