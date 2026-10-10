@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 BINS = ("1", "2_3", "4_7", "8_15", "16_63", "64_255", "256_plus")
+GEN_BINS = ("0", "1", "2_3", "4_7", "8_15", "16_31", "32_plus")
 REQUIRED = (
     "queries", "invalid_queries", "page_overlap_queries", "owners_inspected",
     "results", "queried_pages", "query_ns", "registrations", "unregistrations",
@@ -20,8 +21,12 @@ REQUIRED = (
     "max_active_images", "completed_generations", "generations_with_queries",
     "generations_with_eight_large_queries",
     "max_large_queries_per_completed_generation",
+    "completed_generation_large_queries",
+    "completed_generation_large_queries_after_eight",
     "current_generation_queries", "current_generation_large_queries",
-) + tuple(f"query_pages_{b}" for b in BINS) + tuple(
+) + tuple(f"generation_large_queries_{b}" for b in GEN_BINS) + tuple(
+    f"query_pages_{b}" for b in BINS
+) + tuple(
     f"query_ns_pages_{b}" for b in BINS
 )
 
@@ -53,10 +58,21 @@ def analyze(values: dict[str, int]) -> dict:
     q = values["queries"]
     b = [values[f"query_pages_{name}"] for name in BINS]
     ns = [values[f"query_ns_pages_{name}"] for name in BINS]
+    generation_bins = [values[f"generation_large_queries_{name}"] for name in GEN_BINS]
     if sum(b) != q:
         raise ValueError("query page histogram does not sum to queries")
     if sum(ns) != values["query_ns"]:
         raise ValueError("query duration histograms do not sum to query_ns")
+    if sum(generation_bins) != values["completed_generations"]:
+        raise ValueError("generation histogram does not sum to completed generations")
+    if (values["completed_generation_large_queries"] +
+            values["current_generation_large_queries"] != sum(b[3:])):
+        raise ValueError("completed plus open generation large calls must match histogram")
+    if (values["completed_generation_large_queries_after_eight"] >
+            values["completed_generation_large_queries"]):
+        raise ValueError("post-threshold queries exceed completed-generation large calls")
+    if values["queried_pages"] < q:
+        raise ValueError("queried pages fewer than valid queries")
     if values["results"] > values["owners_inspected"]:
         raise ValueError("more unique results than inspected owners")
     if values["page_overlap_queries"] > q:
@@ -93,6 +109,9 @@ def analyze(values: dict[str, int]) -> dict:
         ) if g else None,
         "max_large_queries_in_completed_generation":
             values["max_large_queries_per_completed_generation"],
+        "completed_generation_large_queries_after_eight":
+            values["completed_generation_large_queries_after_eight"],
+        "generation_large_query_histogram": dict(zip(GEN_BINS, generation_bins)),
         "open_generation_queries": values["current_generation_queries"],
         "open_generation_large_queries": values["current_generation_large_queries"],
         "decision": "INSUFFICIENT_FOR_PRODUCTION_GO",
