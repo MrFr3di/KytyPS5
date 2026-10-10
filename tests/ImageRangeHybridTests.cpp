@@ -143,8 +143,8 @@ void TestH0BucketSkipping() {
   auto scan = fixture.Query(1, 16 * GiB);
   Check(scan.path == HybridImageRangeIndex::QueryPath::BucketSkip,
         "long query must use allocated buckets");
-  // 16 GiB spans 16384 pages; only three allocated 1-GiB buckets.
-  Check(scan.visited_pages == 3 * 1024, "H0 must skip 13 completely unallocated buckets");
+  // A cross-boundary image occupies two buckets; four allocated 1-GiB buckets total.
+  Check(scan.visited_pages == 4 * 1024, "H0 skips 12 completely unallocated buckets");
   fixture.Query(14 * kMiB, 4096);
   fixture.Query(7 * GiB - 1, 2);
   fixture.Query(15 * GiB + 126, 1);
@@ -159,7 +159,7 @@ void TestH0BucketSkipping() {
 void TestH1LazyLifecycle() {
   HybridImageRangeIndex::Config config;
   config.snapshot_min_pages = 4;
-  config.snapshot_after_large_queries = 3;
+  config.snapshot_after_large_queries = 5;
   config.block_size = 7;
   Fixture fixture(config);
   constexpr uint64_t base = uint64_t{1} << 32;
@@ -175,7 +175,7 @@ void TestH1LazyLifecycle() {
   }
   const auto ready = fixture.Query(base, 32 * kMiB);
   Check(ready.path == HybridImageRangeIndex::QueryPath::Snapshot,
-        "third qualifying query must build");
+        "fifth qualifying lookup builds during third paired query");
   Check(ready.snapshot_build_records == 4, "snapshot includes all live images");
   Check(fixture.hybrid.SnapshotBuilds() == 1 && fixture.hybrid.HasValidSnapshot(),
         "snapshot is valid after lazy build");
