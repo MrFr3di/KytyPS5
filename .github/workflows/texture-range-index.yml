@@ -81,17 +81,22 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests --parallel
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench --parallel
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
           ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_page_table)$"
 
+      - name: A/B/C deterministic CPU replay
+        shell: cmd
+        run: |
+          _Build\\windows-range\\image_range_index_bench.exe > range-index-bench.csv
+
       - name: Upload machine and test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: texture-range-index-windows-${{ github.sha }}
-          path: runner-details.txt
+          path: |\n            runner-details.txt\n            range-index-bench.csv
           if-no-files-found: warn
