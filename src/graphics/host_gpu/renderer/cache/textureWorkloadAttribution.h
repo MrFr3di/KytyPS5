@@ -21,11 +21,13 @@ public:
     RegionLookup, ImageDiscovery, ResolveOverlap, ImageRefresh,
     ImageInitialize, ImageCopy, CpuAliasInvalidate, GpuMemoryInvalidate,
     GarbageCollect, RegisterImage, UnregisterImage, ResolveTexture,
-    RebindImages, DescriptorCommit, Count
+    RebindImages, DescriptorCommit, TextureReadback, ProcessReadbacks,
+    BufferDownload, BufferUpload, BufferSynchronize, BufferAcquire, BufferGarbageCollect, Count
   };
   enum class Event : size_t {
     RebindReuse, RebindMissing, RebindUnregistered, RebindNeeded,
-    DescriptorPushWrites, DescriptorSetWrites, Count
+    DescriptorPushWrites, DescriptorSetWrites, BufferUploadStagedBytes,
+    BufferReadbackPackedBytes, TextureReadbackRequestedBytes, Count
   };
   struct Sample {
     uint64_t calls = 0;
@@ -37,11 +39,13 @@ public:
     "region_lookup", "image_discovery", "resolve_overlap", "image_refresh",
     "image_initialize", "image_copy", "cpu_alias_invalidate", "gpu_memory_invalidate",
     "garbage_collect", "register_image", "unregister_image", "resolve_texture",
-    "rebind_images", "descriptor_commit"
+    "rebind_images", "descriptor_commit", "texture_readback", "process_readbacks",
+    "buffer_download", "buffer_upload", "buffer_synchronize", "buffer_acquire", "buffer_garbage_collect"
   };
   static constexpr std::array<const char*, static_cast<size_t>(Event::Count)> EventNames = {
     "rebind_reuse", "rebind_missing", "rebind_unregistered", "rebind_needed",
-    "descriptor_push_writes", "descriptor_set_writes"
+    "descriptor_push_writes", "descriptor_set_writes", "buffer_upload_staged_bytes",
+    "buffer_readback_packed_bytes", "texture_readback_requested_bytes"
   };
 
   class Scope final {
