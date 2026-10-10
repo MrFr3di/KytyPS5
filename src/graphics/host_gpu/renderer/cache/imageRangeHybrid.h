@@ -28,6 +28,8 @@ public:
     uint32_t snapshot_min_pages = 8;
     uint32_t snapshot_after_large_queries = 8;
     size_t block_size = 64;
+    // Admission budget for snapshot records + block summaries, not heap/RSS.
+    size_t max_snapshot_payload_bytes = 1024 * 1024;
     bool allow_snapshot = true;
     bool skip_empty_buckets = true;
   };
@@ -104,6 +106,7 @@ public:
   [[nodiscard]] size_t Size() const { return m_live.size(); }
   [[nodiscard]] uint64_t Generation() const { return m_generation; }
   [[nodiscard]] size_t SnapshotBuilds() const { return m_snapshot_builds; }
+  [[nodiscard]] size_t SnapshotCapDenials() const { return m_snapshot_cap_denials; }
   [[nodiscard]] bool HasValidSnapshot() const {
     return m_snapshot_valid && m_snapshot_generation == m_generation;
   }
@@ -156,12 +159,13 @@ private:
         m_snapshot_generation == m_generation) {
       return SnapshotScan<Output>(first, last, address, end, page_overlap, stats);
     }
-    if (m_config.allow_snapshot) {
+    if (m_config.allow_snapshot && !m_snapshot_cap_rejected) {
       ++m_large_queries_since_mutation;
       if (m_large_queries_since_mutation >= m_config.snapshot_after_large_queries) {
-        BuildSnapshot();
-        if (stats) stats->snapshot_build_records = m_snapshot.size();
-        return SnapshotScan<Output>(first, last, address, end, page_overlap, stats);
+        if (TryBuildSnapshot()) {
+          if (stats) stats->snapshot_build_records = m_snapshot.size();
+          return SnapshotScan<Output>(first, last, address, end, page_overlap, stats);
+        }
       }
     }
     return PageScan<Output>(first, last, address, end, page_overlap,
@@ -176,6 +180,7 @@ private:
 
   void Invalidate() {
     m_snapshot_valid = false;
+    m_snapshot_cap_rejected = false;
     m_large_queries_since_mutation = 0;
     if (m_generation == std::numeric_limits<uint64_t>::max()) {
       m_generation = 1;
@@ -234,12 +239,25 @@ private:
     return result;
   }
 
-  void BuildSnapshot() {
+  bool TryBuildSnapshot() {
+    const size_t count = m_live.size();
+    const size_t groups = count / m_config.block_size +
+                          (count % m_config.block_size != 0 ? 1 : 0);
+    // Check arithmetic before allocation; metadata is charged separately.
+    if (count > (std::numeric_limits<size_t>::max() -
+                 groups * sizeof(uint32_t)) / sizeof(ImageRangeRecord) ||
+        count * sizeof(ImageRangeRecord) +
+                groups * sizeof(uint32_t) > m_config.max_snapshot_payload_bytes) {
+      m_snapshot_cap_rejected = true;
+      ++m_snapshot_cap_denials;
+      return false;
+    }
     m_snapshot.clear();
-    m_snapshot.reserve(m_live.size());
+    m_snapshot.reserve(count);
     for (const auto& item : m_live) m_snapshot.push_back(item.second.record);
     std::sort(m_snapshot.begin(), m_snapshot.end(), ImageRangeDetail::Earlier);
     m_block_max.clear();
+    m_block_max.reserve(groups);
     for (size_t base = 0; base < m_snapshot.size(); base += m_config.block_size) {
       uint32_t maximum = 0;
       for (size_t p = base; p < std::min(m_snapshot.size(), base + m_config.block_size); ++p) {
@@ -250,6 +268,7 @@ private:
     m_snapshot_generation = m_generation;
     m_snapshot_valid = true;
     ++m_snapshot_builds;
+    return true;
   }
 
   template <typename Output>
@@ -295,6 +314,8 @@ private:
   uint64_t m_query_epoch = 0;
   size_t m_large_queries_since_mutation = 0;
   size_t m_snapshot_builds = 0;
+  size_t m_snapshot_cap_denials = 0;
+  bool m_snapshot_cap_rejected = false;
   bool m_snapshot_valid = false;
 };
 
