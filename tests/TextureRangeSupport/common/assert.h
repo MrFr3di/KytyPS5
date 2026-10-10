@@ -6,4 +6,6 @@
 // fatal behavior for invalid page accesses; do NOT disable range checks.
 #include <cstdlib>
 #define EXIT(...) do { std::abort(); } while (false)
+// Preserve the production fatal validation path (including SlotVector invariants).
+#define EXIT_IF(condition) do { if (condition) std::abort(); } while (false)
 #endif
