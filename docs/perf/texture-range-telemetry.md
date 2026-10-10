@@ -73,6 +73,10 @@ Key fields:
 | `max_large_queries_per_completed_generation` | Maximum such lookups between two changes |
 | `current_generation_queries` / `current_generation_large_queries` | Open generation at time of report, intentionally not folded into completed histogram |
 | `max_active_images` | Highest active registered-image count observed |
+| `generation_large_queries_0` through `generation_large_queries_32_plus` | Histogram of number of >=8-page lookups during *completed* generations |
+| `completed_generation_large_queries_after_eight` | Sum of large calls after the eighth in each completed generation: a conservative indicator of possible amortization *after* triggering the snapshot |
+| `completed_generation_large_queries` | All >=8-page lookup calls within completed generations |
+
 
 `queries` is the number of *range index* queries, not all descriptor lookup
 attempts or a GPU frame counter. This telemetry is a diagnostic build and
@@ -92,7 +96,11 @@ python scripts/analyze_texture_range_telemetry.py --json .\\texture-range-teleme
 The tool verifies histogram sums, time sums, registration-generation counts,
 and metric types. It reports the fraction of *index calls* spanning eight or
 more coarse pages and the fraction of query-active, completed generations
-reaching eight such calls. The open generation is handled separately.
+reaching eight such calls. The open generation is handled separately. The report also includes the
+number of **post-eighth** qualifying lookups across completed generations;
+a generation with exactly eight large lookups contributes **zero** to this
+post-threshold opportunity count. This is not an H1 payoff measurement,
+because actual snapshot build time and accelerated lookup time are unknown.
 
 Its decision is intentionally always `INSUFFICIENT_FOR_PRODUCTION_GO`, since
 a single aggregate CSV cannot establish descriptor-cache hit rate, individual
