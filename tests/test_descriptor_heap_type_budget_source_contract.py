@@ -31,6 +31,12 @@ def audit(s,p,b,h,d):
       "pipeline.descriptor_types_known = type_budget.Known();"
     )
     if any(x not in fn for x in required):return False
+    # Bindings must be traversed in the diagnostic cost loop AFTER Vulkan
+    # creation, not in an earlier unrelated descriptor-count loop.
+    if "DescriptorLayoutBudget type_budget;\n\tfor (const auto& binding: bindings)" not in fn:
+        return False
+    if fn.find("graphics.device.createDescriptorSetLayout(")>fn.find("DescriptorLayoutBudget type_budget;"):
+        return False
     if s.count("CreateDescriptorLayout(graphics, pipeline, descriptor_bindings);")!=2:
         return False
     if "descriptor_types_per_set" not in p or "descriptor_types_known = false;" not in p:
@@ -57,8 +63,8 @@ class SourceBudgetContract(unittest.TestCase):
         source[n]=source[n].replace(a,b,1)
         self.assertFalse(audit(*source))
     def test_wrong_origin(self):
-        self.bad(0,"for (const auto& binding: bindings)",
-                 "for (const auto& write: descriptor_writes)")
+        self.bad(0,"DescriptorLayoutBudget type_budget;\n\tfor (const auto& binding: bindings)",
+                 "DescriptorLayoutBudget type_budget;\n\tfor (const auto& write: descriptor_writes)")
     def test_wrong_kind(self):
         self.bad(0,"type_budget.Add(DescriptorBudgetKind::Unsupported, binding.descriptorCount)",
                  "type_budget.Add(DescriptorBudgetKind::StorageBuffer, binding.descriptorCount)")
