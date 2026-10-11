@@ -57,6 +57,7 @@ class AttributionSchemaTests(unittest.TestCase):
         self.assertEqual(r["rebind_reuse_share"], 0.75)
         self.assertEqual(r["transfer_volume_counters"]["buffer_upload_staged_bytes"], 4096)
         self.assertEqual(r["g1_transfer_granularity"]["buffer_upload_regions"], 2)
+        self.assertEqual(r["g1_transfer_granularity"]["buffer_upload_tracker_page_instances"], 1)
         self.assertEqual(r["g1_transfer_granularity"]["buffer_upload_staged_bytes_per_region"], 2048)
         self.assertEqual(r["g1_transfer_granularity"]["readback_packing_ratio"], 1.28)
         self.assertEqual(r["g1_transfer_granularity"]["image_full_upload_guest_bytes"], 8192)
@@ -77,6 +78,19 @@ class AttributionSchemaTests(unittest.TestCase):
     def test_reject_negative_unsigned(self):
         with self.assertRaises(ValueError):
             self.fixture(lambda r: r[0].update(count="-1"))
+
+    def test_empty_stage_trace_has_no_top_bottleneck(self):
+        def clear_stages(rows):
+            for row in rows:
+                if row["kind"] == "stage":
+                    row.update(count="0", inclusive_ns="0", self_ns="0")
+        report = analyze(self.fixture(clear_stages))
+        self.assertEqual(report["top_stages"], [])
+        self.assertIsNone(report["region_lookup_share_of_instrumented_self"])
+
+    def test_reject_non_page_aligned_upload(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda r: next(x for x in r if x["name"] == "buffer_upload_staged_bytes").update(count="4097"))
 
     def test_reject_upload_batch_exceeds_regions(self):
         with self.assertRaises(ValueError):
