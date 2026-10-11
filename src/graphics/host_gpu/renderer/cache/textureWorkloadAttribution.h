@@ -27,7 +27,9 @@ public:
   enum class Event : size_t {
     RebindReuse, RebindMissing, RebindUnregistered, RebindNeeded,
     DescriptorPushWrites, DescriptorSetWrites, BufferUploadStagedBytes,
-    BufferReadbackPackedBytes, TextureReadbackRequestedBytes, Count
+    BufferUploadRegions, BufferUploadBatches, BufferReadbackPackedBytes,
+    BufferReadbackPayloadBytes, BufferReadbackRegions,
+    TextureReadbackRequestedBytes, ImageUploadRequests, ImageUploadGuestBytes, Count
   };
   struct Sample {
     uint64_t calls = 0;
@@ -45,7 +47,9 @@ public:
   static constexpr std::array<const char*, static_cast<size_t>(Event::Count)> EventNames = {
     "rebind_reuse", "rebind_missing", "rebind_unregistered", "rebind_needed",
     "descriptor_push_writes", "descriptor_set_writes", "buffer_upload_staged_bytes",
-    "buffer_readback_packed_bytes", "texture_readback_requested_bytes"
+    "buffer_upload_regions", "buffer_upload_batches", "buffer_readback_packed_bytes",
+    "buffer_readback_payload_bytes", "buffer_readback_regions",
+    "texture_readback_requested_bytes", "image_upload_requests", "image_upload_guest_bytes"
   };
 
   class Scope final {
@@ -54,6 +58,12 @@ public:
         : m_owner(enabled ? &owner : nullptr), m_stage(stage) {
       if (m_owner) {
         m_parent = Active();
+        // Only nested scopes belonging to this accumulator are exclusive.
+        // Find the matching ancestor even if another accumulator intervenes.
+        m_accounting_parent = m_parent;
+        while (m_accounting_parent && m_accounting_parent->m_owner != m_owner) {
+          m_accounting_parent = m_accounting_parent->m_parent;
+        }
         Active() = this;
         m_start = Clock::now();
       }
@@ -66,9 +76,9 @@ public:
       const auto self = inclusive >= m_children_ns ? inclusive - m_children_ns : uint64_t{0};
       m_owner->Record(m_stage, inclusive, self);
       Active() = m_parent;
-      if (m_parent) {
-        const auto space = std::numeric_limits<uint64_t>::max() - m_parent->m_children_ns;
-        m_parent->m_children_ns += inclusive < space ? inclusive : space;
+      if (m_accounting_parent) {
+        const auto space = std::numeric_limits<uint64_t>::max() - m_accounting_parent->m_children_ns;
+        m_accounting_parent->m_children_ns += inclusive < space ? inclusive : space;
       }
     }
     Scope(const Scope&) = delete;
@@ -85,6 +95,7 @@ public:
     TextureWorkloadAttribution* m_owner = nullptr;
     Stage m_stage;
     Scope* m_parent = nullptr;
+    Scope* m_accounting_parent = nullptr;
     Clock::time_point m_start{};
     uint64_t m_children_ns = 0;
   };

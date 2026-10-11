@@ -49,10 +49,12 @@ scene, driver, GPU, build SHA, display settings, build mode).
   nested work, vs `self_ns` excluding nested **instrumented** scopes on the
   same thread. `count` is invocations, not page count. Scope nesting is tracked
   in thread-local state and totals use relaxed atomic adds.
-- `event`: count (for rebind decision, number of descriptor writes, or bytes)
-  with zero `inclusive_ns,self_ns`. Names ending in `_bytes` identify packed
-  buffer readback bytes, staged buffer upload bytes, or requested texture
-  readback bytes. They **do not measure actual PCIe/GPU transfers**.
+- `event`: count (for rebind decision, number of descriptor writes, ranges,
+  batches, requests, or bytes) with zero `inclusive_ns,self_ns`. Names ending
+  in `_bytes` identify requested/staged/packed guest volumes, **not** actual
+  PCIe/GPU transfers. The metric set is G1-A extended; archived older CSVs
+  with missing metrics fail strict schema validation and must not be silently
+  compared with the expanded schema.
 
 Main diagnostic stages:
 - `region_lookup` — canonical 1-MiB page-owner lookup.
@@ -70,6 +72,31 @@ the current `RenderExecutor::RebindImages` decision, and
 `descriptor_push_writes/descriptor_set_writes` count Vulkan descriptor write
 records on the two binding paths. This does not directly count expensive GPU
 driver validation or descriptor-cache hits upstream of this call.
+
+## G1-A: safe transfer-granularity attribution
+
+- `buffer_upload_regions` counts nonempty buffer copy records selected by
+  `MemoryTracker::ForEachUploadRange` and passed to `UploadCopies`;
+  `buffer_upload_batches` counts the corresponding nonempty staging batches.
+  Neither metric is a count of unique dirty pages or actual GPU submissions.
+- `buffer_upload_staged_bytes` measures requested payload staging bytes.
+- `buffer_readback_regions` counts readback copy regions,
+  `buffer_readback_payload_bytes` sums useful copy sizes, and
+  `buffer_readback_packed_bytes` includes per-region 64-byte alignment.
+  The packing ratio is a host staging layout metric, not PCIe amplification.
+- `image_upload_requests` counts completed calls to `UploadImage` from
+  `InitializeImage`; `image_upload_guest_bytes` sums the full guest backing
+  footprints requested. These do not measure the native compressed/tiled GPU
+  transfer size, and do not establish that partial image transfers are safe.
+- Counters are incremented only with both telemetry opt-ins; disabled builds
+  have no new runtime work. No guest addresses or transient trace buffers are
+  stored.
+
+**G1-A GO**: representative game captures demonstrate a material recurring
+full-image/fragmented buffer-upload cost, supported by an external CPU/ETW
+profile and correctness baseline. **G1-A NO-GO**: no representative evidence,
+or measurement overhead masks the signal. This stage intentionally changes
+only instrumentation and cannot establish gameplay speedup.
 
 ## Measurement interpretation and limitations
 

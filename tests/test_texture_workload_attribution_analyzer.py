@@ -25,6 +25,20 @@ class AttributionSchemaTests(unittest.TestCase):
                 row["count"] = "1"
             if row["name"] == "buffer_upload_staged_bytes":
                 row["count"] = "4096"
+            if row["name"] == "buffer_upload_regions":
+                row["count"] = "2"
+            if row["name"] == "buffer_upload_batches":
+                row["count"] = "1"
+            if row["name"] == "buffer_readback_payload_bytes":
+                row["count"] = "100"
+            if row["name"] == "buffer_readback_packed_bytes":
+                row["count"] = "128"
+            if row["name"] == "buffer_readback_regions":
+                row["count"] = "1"
+            if row["name"] == "image_upload_requests":
+                row["count"] = "1"
+            if row["name"] == "image_upload_guest_bytes":
+                row["count"] = "8192"
         if mutate:
             mutate(rows)
         with tempfile.TemporaryDirectory() as d:
@@ -42,6 +56,10 @@ class AttributionSchemaTests(unittest.TestCase):
         self.assertEqual(r["region_lookup_share_of_instrumented_self"], 0.75)
         self.assertEqual(r["rebind_reuse_share"], 0.75)
         self.assertEqual(r["transfer_volume_counters"]["buffer_upload_staged_bytes"], 4096)
+        self.assertEqual(r["g1_transfer_granularity"]["buffer_upload_regions"], 2)
+        self.assertEqual(r["g1_transfer_granularity"]["buffer_upload_staged_bytes_per_region"], 2048)
+        self.assertEqual(r["g1_transfer_granularity"]["readback_packing_ratio"], 1.28)
+        self.assertEqual(r["g1_transfer_granularity"]["image_full_upload_guest_bytes"], 8192)
         self.assertEqual(r["decision"], "INSUFFICIENT_FOR_PRODUCTION_GO")
 
     def test_reject_self_larger_than_inclusive(self):
@@ -59,6 +77,18 @@ class AttributionSchemaTests(unittest.TestCase):
     def test_reject_negative_unsigned(self):
         with self.assertRaises(ValueError):
             self.fixture(lambda r: r[0].update(count="-1"))
+
+    def test_reject_upload_batch_exceeds_regions(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda r: next(x for x in r if x["name"] == "buffer_upload_batches").update(count="3"))
+
+    def test_reject_readback_packing_below_payload(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda r: next(x for x in r if x["name"] == "buffer_readback_packed_bytes").update(count="50"))
+
+    def test_reject_noncanonical_unsigned(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda r: r[0].update(count="+2"))
 
     def test_reject_event_timing(self):
         with self.assertRaises(ValueError):

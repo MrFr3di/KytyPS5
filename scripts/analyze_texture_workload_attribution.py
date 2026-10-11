@@ -24,8 +24,11 @@ STAGES = (
 EVENTS = (
     "rebind_reuse", "rebind_missing", "rebind_unregistered",
     "rebind_needed", "descriptor_push_writes", "descriptor_set_writes",
-    "buffer_upload_staged_bytes", "buffer_readback_packed_bytes",
-    "texture_readback_requested_bytes",
+    "buffer_upload_staged_bytes", "buffer_upload_regions",
+    "buffer_upload_batches", "buffer_readback_packed_bytes",
+    "buffer_readback_payload_bytes", "buffer_readback_regions",
+    "texture_readback_requested_bytes", "image_upload_requests",
+    "image_upload_guest_bytes",
 )
 MAX_U64 = (1 << 64) - 1
 
@@ -45,10 +48,10 @@ def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
                 raise ValueError(f"unknown/duplicate metric: {kind}/{name}")
             values = {}
             for key in ("count", "inclusive_ns", "self_ns"):
-                try:
-                    value = int(row[key], 10)
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(f"invalid {key} for {name}") from exc
+                raw = row[key]
+                if raw is None or not raw or not raw.isascii() or not raw.isdecimal():
+                    raise ValueError(f"invalid {key} for {name}")
+                value = int(raw, 10)
                 if value < 0 or value > MAX_U64:
                     raise ValueError(f"out of range {key} for {name}")
                 values[key] = value
@@ -62,6 +65,20 @@ def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
             rows[kind][name] = values
     if set(rows["stage"]) != set(STAGES) or set(rows["event"]) != set(EVENTS):
         raise ValueError("incomplete metric schema")
+    events = rows["event"]
+    if events["buffer_upload_batches"]["count"] > events["buffer_upload_regions"]["count"]:
+        raise ValueError("more upload batches than regions")
+    if events["buffer_upload_regions"]["count"] == 0 and events["buffer_upload_staged_bytes"]["count"]:
+        raise ValueError("upload bytes without upload regions")
+    if events["buffer_readback_packed_bytes"]["count"] < events["buffer_readback_payload_bytes"]["count"]:
+        raise ValueError("packed readback smaller than payload")
+    if events["buffer_readback_regions"]["count"] == 0 and (
+        events["buffer_readback_packed_bytes"]["count"] or
+        events["buffer_readback_payload_bytes"]["count"]
+    ):
+        raise ValueError("readback bytes without regions")
+    if events["image_upload_requests"]["count"] == 0 and events["image_upload_guest_bytes"]["count"]:
+        raise ValueError("image upload bytes without requests")
     return rows
 
 
@@ -72,6 +89,10 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
     rebinding = sum(rows["event"][name]["count"] for name in
                     ("rebind_reuse", "rebind_missing",
                      "rebind_unregistered", "rebind_needed"))
+    events = {name: metrics["count"] for name, metrics in rows["event"].items()}
+    unpacked = events["buffer_readback_payload_bytes"]
+    packed = events["buffer_readback_packed_bytes"]
+    upload_regions = events["buffer_upload_regions"]
     return {
         "recorded_instrumented_self_wall_ns": total_self,
         "region_lookup_share_of_instrumented_self": (
@@ -90,7 +111,21 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
             if rebinding else None
         ),
         "transfer_volume_counters": {
-            name: rows["event"][name]["count"] for name in EVENTS if name.endswith("_bytes")
+            name: events[name] for name in EVENTS if name.endswith("_bytes")
+        },
+        "g1_transfer_granularity": {
+            "buffer_upload_regions": upload_regions,
+            "buffer_upload_batches": events["buffer_upload_batches"],
+            "buffer_upload_staged_bytes_per_region": (
+                round(events["buffer_upload_staged_bytes"] / upload_regions, 2)
+                if upload_regions else None
+            ),
+            "buffer_readback_regions": events["buffer_readback_regions"],
+            "buffer_readback_payload_bytes": unpacked,
+            "buffer_readback_packed_bytes": packed,
+            "readback_packing_ratio": round(packed / unpacked, 6) if unpacked else None,
+            "image_full_upload_requests": events["image_upload_requests"],
+            "image_full_upload_guest_bytes": events["image_upload_guest_bytes"],
         },
         "decision": "INSUFFICIENT_FOR_PRODUCTION_GO",
         "limitations": [
@@ -98,6 +133,8 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
             "This is a non-exhaustive, nested call graph; self share is NOT percentage of total frame CPU time.",
             "No per-frame, FPS, GPU stall, shader compile, or global descriptor-cache hit rate is measured.",
             "Transfer byte counters describe requested/staged/packed amounts, not measured PCIe throughput.",
+            "Upload region counts are MemoryTracker-selected copies, not a count of unique dirty pages.",
+            "Full image upload guest bytes are requested footprints, not actual transferred GPU bytes.",
             "Instrumentation itself changes timing; compare identical opt-in builds and complete game traces.",
         ],
     }

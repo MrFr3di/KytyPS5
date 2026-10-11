@@ -1,8 +1,14 @@
 #include "graphics/host_gpu/renderer/cache/textureWorkloadAttribution.h"
+// Release CMake sets NDEBUG; research correctness tests must never become no-ops.
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <chrono>
 #include <string>
+#include <thread>
 
 using Stats = Libs::Graphics::TextureWorkloadAttribution;
 
@@ -26,10 +32,43 @@ int main() {
   assert(child.inclusive_ns >= child.self_ns);
   assert(telemetry.Get(Stats::Stage::GarbageCollect).calls == 0);
   assert(parent.inclusive_ns >= child.inclusive_ns);
+  // A foreign recorder must not consume the parent's exclusive time.
+  Stats foreign;
+  {
+    Stats::Scope outer(telemetry, Stats::Stage::ImageDiscovery, true);
+    {
+      Stats::Scope other(foreign, Stats::Stage::ImageDiscovery, true);
+      std::this_thread::sleep_for(std::chrono::milliseconds(3));
+      {
+        Stats::Scope same_owner_descendant(telemetry, Stats::Stage::ImageCopy, true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+  }
+  const auto combined_outer = telemetry.Get(Stats::Stage::ImageDiscovery);
+  const auto combined_child = telemetry.Get(Stats::Stage::ImageCopy);
+  const auto foreign_child = foreign.Get(Stats::Stage::ImageDiscovery);
+  // Across both outer calls: only same-recorder children can reduce self time.
+  assert(combined_outer.calls == 2 && combined_child.calls == 1 && foreign_child.calls == 1);
+  assert(combined_outer.self_ns >= foreign_child.inclusive_ns);
+  assert(combined_outer.inclusive_ns >= combined_outer.self_ns + combined_child.inclusive_ns);
+
   telemetry.Count(Stats::Event::RebindReuse);
   telemetry.Count(Stats::Event::DescriptorSetWrites, 7);
+  telemetry.Count(Stats::Event::BufferUploadRegions, 3);
+  telemetry.Count(Stats::Event::BufferUploadBatches);
+  telemetry.Count(Stats::Event::BufferReadbackPayloadBytes, 123);
+  telemetry.Count(Stats::Event::BufferReadbackPackedBytes, 128);
+  telemetry.Count(Stats::Event::ImageUploadRequests);
+  telemetry.Count(Stats::Event::ImageUploadGuestBytes, 8192);
   assert(telemetry.Get(Stats::Event::RebindReuse) == 1);
   assert(telemetry.Get(Stats::Event::DescriptorSetWrites) == 7);
+  assert(telemetry.Get(Stats::Event::BufferUploadRegions) == 3);
+  assert(telemetry.Get(Stats::Event::BufferUploadBatches) == 1);
+  assert(telemetry.Get(Stats::Event::BufferReadbackPayloadBytes) == 123);
+  assert(telemetry.Get(Stats::Event::BufferReadbackPackedBytes) == 128);
+  assert(telemetry.Get(Stats::Event::ImageUploadRequests) == 1);
+  assert(telemetry.Get(Stats::Event::ImageUploadGuestBytes) == 8192);
   telemetry.Record(Stats::Stage::ImageCopy, 3, 5);
   auto clipped = telemetry.Get(Stats::Stage::ImageCopy);
   assert(clipped.calls == 1 && clipped.inclusive_ns == 3 && clipped.self_ns == 3);
@@ -45,6 +84,9 @@ int main() {
   std::fclose(file);
   assert(csv.find("event,rebind_reuse,1,0,0\n") != std::string::npos);
   assert(csv.find("event,descriptor_set_writes,7,0,0\n") != std::string::npos);
+  assert(csv.find("event,buffer_upload_regions,3,0,0\n") != std::string::npos);
+  assert(csv.find("event,buffer_readback_payload_bytes,123,0,0\n") != std::string::npos);
+  assert(csv.find("event,image_upload_guest_bytes,8192,0,0\n") != std::string::npos);
   assert(csv.find("stage,image_copy,1,3,3\n") != std::string::npos);
   std::puts("TextureWorkloadAttributionTests: PASS");
 }

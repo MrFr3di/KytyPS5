@@ -1076,6 +1076,14 @@ void TextureCache::InitializeImage(ImageId id) {
 			EXIT("TextureCache: failed to obtain image upload source\n");
 		}
 		UploadImage(image, *source, source_offset);
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+		// Requested full guest image footprint, not actual PCIe transfer bytes.
+		if (m_workload_telemetry_enabled) {
+			m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageUploadRequests);
+			m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageUploadGuestBytes,
+			                           image.info.data.size);
+		}
+#endif
 		image.ClearBufferModified();
 	}
 	if (image.IsCpuDirty()) {

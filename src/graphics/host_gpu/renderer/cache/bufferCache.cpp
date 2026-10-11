@@ -166,6 +166,17 @@ bool BufferCache::DownloadBufferMemory(Buffer& buffer, uint64_t vaddr, uint64_t 
 		return false;
 	}
 	KYTY_BUFFER_WORKLOAD_BYTES(BufferReadbackPackedBytes, total_size);
+	KYTY_BUFFER_WORKLOAD_BYTES(BufferReadbackRegions, copies.size());
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	if (m_texture_cache.m_workload_telemetry_enabled) {
+		uint64_t payload_bytes = 0;
+		for (const auto& copy: copies) {
+			payload_bytes += copy.size;
+		}
+		m_texture_cache.m_workload_telemetry.Count(
+		    TextureWorkloadAttribution::Event::BufferReadbackPayloadBytes, payload_bytes);
+	}
+#endif
 
 	auto [mapped, offset] = m_download_buffer.Map(total_size, 64);
 	std::unique_ptr<Buffer> temporary;
@@ -459,6 +470,8 @@ vk::Buffer BufferCache::UploadCopies(Buffer& buffer, std::span<vk::BufferCopy> c
 		return nullptr;
 	}
 	KYTY_BUFFER_WORKLOAD_BYTES(BufferUploadStagedBytes, total_size);
+	KYTY_BUFFER_WORKLOAD_BYTES(BufferUploadRegions, copies.size());
+	KYTY_BUFFER_WORKLOAD_BYTES(BufferUploadBatches, 1);
 
 	auto [mapped, base_offset] = m_staging_buffer.Map(total_size, 4);
 	if (mapped != nullptr) {
