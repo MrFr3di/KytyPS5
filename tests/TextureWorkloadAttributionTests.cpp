@@ -70,6 +70,21 @@ int main() {
   assert(telemetry.Get(Stats::Event::BufferReadbackPackedBytes) == 128);
   assert(telemetry.Get(Stats::Event::ImageUploadRequests) == 1);
   assert(telemetry.Get(Stats::Event::ImageUploadGuestBytes) == 8192);
+  // Snapshots are bounded and retain observed high-water, not a fake VRAM estimate.
+  telemetry.ObserveResourceSnapshot(12, 20, 10, 9, 34);
+  telemetry.ObserveResourceSnapshot(5, 20, 3, 4, 8);
+  assert(telemetry.Get(Stats::Event::ResourceSnapshots) == 2);
+  assert(telemetry.Get(Stats::Gauge::ImageSlotsLive) == 5);
+  assert(telemetry.Get(Stats::Gauge::ImageSlotsCapacity) == 20);
+  assert(telemetry.Get(Stats::Gauge::ImageSlotsRegistered) == 3);
+  assert(telemetry.Get(Stats::Gauge::NativeImagesLive) == 4);
+  assert(telemetry.Get(Stats::Gauge::ImageViewsLive) == 8);
+  assert(telemetry.Get(Stats::Gauge::ImageSlotsPeakObserved) == 12);
+  assert(telemetry.Get(Stats::Gauge::ImageViewsPeakObserved) == 34);
+  telemetry.Count(Stats::Event::ImageGcChecks, 3);
+  telemetry.Count(Stats::Event::ImageGcBelowTrigger, 2);
+  telemetry.Count(Stats::Event::ImageGcRootCandidates, 4);
+  telemetry.Count(Stats::Event::ImageGcRootRetireRequests);
   telemetry.Record(Stats::Stage::BufferGarbageCollect, 3, 5);
   auto clipped = telemetry.Get(Stats::Stage::BufferGarbageCollect);
   assert(clipped.calls == 1 && clipped.inclusive_ns == 3 && clipped.self_ns == 3);
@@ -89,5 +104,8 @@ int main() {
   assert(csv.find("event,buffer_readback_payload_bytes,123,0,0\n") != std::string::npos);
   assert(csv.find("event,image_upload_guest_bytes,8192,0,0\n") != std::string::npos);
   assert(csv.find("stage,buffer_garbage_collect,1,3,3\n") != std::string::npos);
+  assert(csv.find("gauge,image_slots_live,5,0,0\n") != std::string::npos);
+  assert(csv.find("gauge,image_views_peak_observed,34,0,0\n") != std::string::npos);
+  assert(csv.find("event,image_gc_checks,3,0,0\n") != std::string::npos);
   std::puts("TextureWorkloadAttributionTests: PASS");
 }

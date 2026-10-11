@@ -50,11 +50,12 @@ scene, driver, GPU, build SHA, display settings, build mode).
   same thread. `count` is invocations, not page count. Scope nesting is tracked
   in thread-local state and totals use relaxed atomic adds.
 - `event`: count (for rebind decision, number of descriptor writes, ranges,
-  batches, requests, or bytes) with zero `inclusive_ns,self_ns`. Names ending
-  in `_bytes` identify requested/staged/packed guest volumes, **not** actual
-  PCIe/GPU transfers. The metric set is G1-A extended; archived older CSVs
-  with missing metrics fail strict schema validation and must not be silently
-  compared with the expanded schema.
+  batches, requests, GC decisions, or bytes) with zero `inclusive_ns,self_ns`.
+  Names ending in `_bytes` identify requested/staged/packed guest volumes,
+  **not** actual PCIe/GPU transfers.
+- `gauge`: most recent sampled value or observed sampled high-water in `count`,
+  with zero time fields. Gauges are not additive events. The strict CSV schema
+  is G2-A extended; earlier G0/G1-A files must not be silently mixed with it.
 
 Main diagnostic stages:
 - `region_lookup` — canonical 1-MiB page-owner lookup.
@@ -100,6 +101,42 @@ full-image/fragmented buffer-upload cost, supported by an external CPU/ETW
 profile and correctness baseline. **G1-A NO-GO**: no representative evidence,
 or measurement overhead masks the signal. This stage intentionally changes
 only instrumentation and cannot establish gameplay speedup.
+
+## G2-A: image/image-view slot lifecycle attribution
+
+The current `TextureCache::RunGarbageCollector` can return before inspecting LRU
+candidates if its memory threshold is not reached. `DeleteImage` can defer
+`SlotVector::erase`, so logical registration and physical resource lifetime
+differ. `Image::FindView` caches native views in each image, and the actual
+Vulkan view destruction happens from `Image::~Image`.
+
+This diagnostic adds **no object-count-triggered GC policy**. While holding
+the existing texture-cache lock, it samples `SlotVector::size()` (occupied
+slots), `capacity()` (allocated slot capacity), number of registered
+images, images with native Vulkan image handles, and total cached native
+image views. Snapshots occur once every 128 GC calls and once before normal
+destructor CSV emission. The `*_peak_observed` gauges are **sampled lower
+bounds**, not real all-time high-water marks; last-sample occupancy can also
+include objects waiting for deferred removal.
+
+`image_gc_checks` and `image_gc_below_trigger` count eligibility checks and
+early return decisions. `image_gc_root_candidates` is the number of LRU
+candidate IDs selected for evaluation. `image_gc_root_retire_requests` counts
+accepted logical root retire requests (not confirmed physical Vulkan frees).
+Skips for GPU-owned tiled images, safely downloadable images without VRAM
+pressure, and failed readback are counted separately. None of these counters
+measure true Vulkan allocation count, GPU budget, device residency, or object
+limits. They are not interchangeable with `VkPhysicalDeviceLimits` limits.
+
+**GO-for-research:** representative Windows workload has high and recurring
+view/slot occupancy while GC repeatedly exits below its memory threshold,
+cross-validated with an external GPU resource diagnostic. **NO-GO for a
+slot-driven eviction policy:** only synthetic/CI data, no confirmed bottleneck,
+or inability to preserve deferred-deletion and GPU dirty ownership. Any new
+policy must first be implemented in an independent test oracle.
+
+This stage is measurement-only and does not change image registration, native
+resource ownership, Vulkan calls, LRU policy, or scheduler synchronization.
 
 ## Measurement interpretation and limitations
 

@@ -172,6 +172,8 @@ TextureCache::~TextureCache() {
 #if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
 	// Dump before teardown/GC can bias the counters; no per-query contents.
 	if (m_workload_telemetry_enabled) {
+		// Final slot/view snapshot, including resources retained by deferred deletion.
+		RecordResourceSnapshot();
 		if (auto* file = std::fopen("texture-workload-attribution.csv", "w")) {
 			m_workload_telemetry.WriteCsv(file);
 			std::fclose(file);
@@ -184,6 +186,24 @@ TextureCache::~TextureCache() {
 		}
 	});
 }
+
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+void TextureCache::RecordResourceSnapshot() noexcept {
+	// The cache lock is already owned in GC; teardown is single-threaded.
+	// Cached image views are kept in each Image until physical destruction.
+	uint64_t registered = 0;
+	uint64_t native_images = 0;
+	uint64_t live_views = 0;
+	m_slot_images.ForEach([&](ImageId, const Image& image) {
+		registered += static_cast<uint64_t>(image.registered);
+		native_images += static_cast<uint64_t>(image.backing.image != nullptr);
+		live_views += static_cast<uint64_t>(image.views.size());
+	});
+	m_workload_telemetry.ObserveResourceSnapshot(m_slot_images.size(),
+	                                            m_slot_images.capacity(), registered,
+	                                            native_images, live_views);
+}
+#endif
 
 bool TextureCache::SameBacking(const ImageInfo& cached, const ImageInfo& requested,
                                bool exact_format) {
@@ -1967,7 +1987,18 @@ void TextureCache::RunGarbageCollector() {
 	if (m_graphics.CanReportMemoryUsage()) {
 		m_total_used_memory = m_graphics.GetDeviceMemoryUsage();
 	}
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	if (m_workload_telemetry_enabled) {
+		m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageGcChecks);
+		// Bounded diagnostic sampling; no per-frame scan on a hot render path.
+		if ((tick & 127u) == 0) RecordResourceSnapshot();
+	}
+#endif
 	if (m_total_used_memory < m_trigger_gc_memory) {
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+		if (m_workload_telemetry_enabled)
+			m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageGcBelowTrigger);
+#endif
 		return;
 	}
 	const auto collect = [&](bool allow_aggressive) {
@@ -1983,6 +2014,11 @@ void TextureCache::RunGarbageCollector() {
 			candidates.push_back(id);
 			return candidates.size() == deletions;
 		});
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+		if (m_workload_telemetry_enabled)
+			m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageGcRootCandidates,
+			                           candidates.size());
+#endif
 		for (const auto id: candidates) {
 			if (deletions == 0) {
 				break;
@@ -1995,16 +2031,32 @@ void TextureCache::RunGarbageCollector() {
 			if (owner->IsGpuModified()) {
 				const bool safe = owner->SafeToDownload();
 				if (safe && owner->info.IsTiled()) {
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+					if (m_workload_telemetry_enabled)
+						m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageGcSkippedTiled);
+#endif
 					continue;
 				}
 				if (safe && !pressured) {
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+					if (m_workload_telemetry_enabled)
+						m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageGcSkippedUnpressured);
+#endif
 					continue;
 				}
 				if (safe && !DownloadImageMemory(id)) {
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+					if (m_workload_telemetry_enabled)
+						m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageGcSkippedReadback);
+#endif
 					continue;
 				}
 			}
 			FreeImage(id);
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+			if (m_workload_telemetry_enabled)
+				m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageGcRootRetireRequests);
+#endif
 			if (m_total_used_memory < m_critical_gc_memory && aggressive) {
 				deletions >>= 2;
 				aggressive = false;

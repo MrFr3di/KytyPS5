@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from analyze_texture_workload_attribution import STAGES, EVENTS, parse, analyze
+from analyze_texture_workload_attribution import STAGES, EVENTS, GAUGES, parse, analyze
 
 
 class AttributionSchemaTests(unittest.TestCase):
@@ -14,7 +14,9 @@ class AttributionSchemaTests(unittest.TestCase):
             [dict(kind="stage", name=n, count="0", inclusive_ns="0", self_ns="0")
              for n in STAGES] +
             [dict(kind="event", name=n, count="0", inclusive_ns="0", self_ns="0")
-             for n in EVENTS]
+             for n in EVENTS] +
+            [dict(kind="gauge", name=n, count="0", inclusive_ns="0", self_ns="0")
+             for n in GAUGES]
         )
         rows[0].update(count="2", inclusive_ns="100", self_ns="60")
         rows[1].update(count="1", inclusive_ns="30", self_ns="20")
@@ -39,6 +41,17 @@ class AttributionSchemaTests(unittest.TestCase):
                 row["count"] = "1"
             if row["name"] == "image_upload_guest_bytes":
                 row["count"] = "8192"
+            resource = {
+                "resource_snapshots": 2,
+                "image_gc_checks": 10, "image_gc_below_trigger": 8,
+                "image_gc_root_candidates": 4, "image_gc_root_retire_requests": 1,
+                "image_slots_live": 5, "image_slots_capacity": 16,
+                "image_slots_registered": 3, "native_images_live": 4,
+                "image_views_live": 9, "image_slots_peak_observed": 12,
+                "image_views_peak_observed": 25,
+            }
+            if row["name"] in resource:
+                row["count"] = str(resource[row["name"]])
         if mutate:
             mutate(rows)
         with tempfile.TemporaryDirectory() as d:
@@ -61,6 +74,8 @@ class AttributionSchemaTests(unittest.TestCase):
         self.assertEqual(r["g1_transfer_granularity"]["buffer_upload_staged_bytes_per_region"], 2048)
         self.assertEqual(r["g1_transfer_granularity"]["readback_packing_ratio"], 1.28)
         self.assertEqual(r["g1_transfer_granularity"]["image_full_upload_guest_bytes"], 8192)
+        self.assertEqual(r["g2_resource_lifecycle"]["image_views_peak_observed"], 25)
+        self.assertEqual(r["g2_resource_lifecycle"]["image_gc_below_trigger_share"], 0.8)
         self.assertEqual(r["decision"], "INSUFFICIENT_FOR_PRODUCTION_GO")
 
     def test_reject_self_larger_than_inclusive(self):
@@ -103,6 +118,26 @@ class AttributionSchemaTests(unittest.TestCase):
     def test_reject_noncanonical_unsigned(self):
         with self.assertRaises(ValueError):
             self.fixture(lambda r: r[0].update(count="+2"))
+
+    def test_reject_missing_gauge(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda rows: rows.pop(-1))
+
+    def test_reject_invalid_slot_occupancy(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda rows: next(r for r in rows if r["name"] == "image_slots_registered").update(count="25"))
+
+    def test_reject_gc_return_greater_than_checks(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda rows: next(r for r in rows if r["name"] == "image_gc_below_trigger").update(count="11"))
+
+    def test_reject_observed_peak_lower_than_snapshot(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda rows: next(r for r in rows if r["name"] == "image_views_peak_observed").update(count="1"))
+
+    def test_reject_missing_resource_snapshot(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda rows: next(r for r in rows if r["name"] == "resource_snapshots").update(count="0"))
 
     def test_reject_event_timing(self):
         with self.assertRaises(ValueError):

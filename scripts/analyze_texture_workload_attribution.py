@@ -28,13 +28,23 @@ EVENTS = (
     "buffer_upload_batches", "buffer_readback_packed_bytes",
     "buffer_readback_payload_bytes", "buffer_readback_regions",
     "texture_readback_requested_bytes", "image_upload_requests",
-    "image_upload_guest_bytes",
+    "image_upload_guest_bytes", "image_gc_checks", "image_gc_below_trigger",
+    "image_gc_root_candidates", "image_gc_root_retire_requests",
+    "image_gc_skipped_tiled", "image_gc_skipped_unpressured",
+    "image_gc_skipped_readback", "resource_snapshots",
+)
+GAUGES = (
+    "image_slots_live", "image_slots_capacity", "image_slots_registered",
+    "native_images_live", "image_views_live", "image_slots_peak_observed",
+    "image_views_peak_observed",
 )
 MAX_U64 = (1 << 64) - 1
 
 
 def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
-    rows: dict[str, dict[str, dict[str, int]]] = {"stage": {}, "event": {}}
+    rows: dict[str, dict[str, dict[str, int]]] = {
+        "stage": {}, "event": {}, "gauge": {},
+    }
     with path.open("r", encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         if reader.fieldnames != ["kind", "name", "count", "inclusive_ns", "self_ns"]:
@@ -43,7 +53,11 @@ def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
             if None in row or len(row) != 5:
                 raise ValueError("invalid row shape")
             kind, name = row["kind"], row["name"]
-            valid = STAGES if kind == "stage" else EVENTS if kind == "event" else ()
+            valid = (
+                STAGES if kind == "stage" else
+                EVENTS if kind == "event" else
+                GAUGES if kind == "gauge" else ()
+            )
             if name not in valid or name in rows.get(kind, {}):
                 raise ValueError(f"unknown/duplicate metric: {kind}/{name}")
             values = {}
@@ -63,9 +77,24 @@ def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
             elif values["inclusive_ns"] or values["self_ns"]:
                 raise ValueError(f"event contains timing: {name}")
             rows[kind][name] = values
-    if set(rows["stage"]) != set(STAGES) or set(rows["event"]) != set(EVENTS):
+    if (set(rows["stage"]) != set(STAGES) or set(rows["event"]) != set(EVENTS) or
+            set(rows["gauge"]) != set(GAUGES)):
         raise ValueError("incomplete metric schema")
     events = rows["event"]
+    gauges = {name: val["count"] for name, val in rows["gauge"].items()}
+    snapshots = events["resource_snapshots"]["count"]
+    if not snapshots and any(gauges.values()):
+        raise ValueError("resource gauges without a snapshot")
+    if (gauges["image_slots_live"] > gauges["image_slots_capacity"] or
+            gauges["image_slots_registered"] > gauges["image_slots_live"] or
+            gauges["native_images_live"] > gauges["image_slots_live"] or
+            gauges["image_slots_peak_observed"] < gauges["image_slots_live"] or
+            gauges["image_views_peak_observed"] < gauges["image_views_live"]):
+        raise ValueError("invalid resource occupancy snapshot")
+    if (events["image_gc_below_trigger"]["count"] > events["image_gc_checks"]["count"]:
+        raise ValueError("GC early returns exceed checks")
+    if events["image_gc_root_retire_requests"]["count"] > events["image_gc_root_candidates"]["count"]:
+        raise ValueError("more root retire requests than inspected GC candidates")
     if events["buffer_upload_batches"]["count"] > events["buffer_upload_regions"]["count"]:
         raise ValueError("more upload batches than regions")
     staged_bytes = events["buffer_upload_staged_bytes"]["count"]
@@ -98,6 +127,8 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
                     ("rebind_reuse", "rebind_missing",
                      "rebind_unregistered", "rebind_needed"))
     events = {name: metrics["count"] for name, metrics in rows["event"].items()}
+    gauges = {name: metrics["count"] for name, metrics in rows["gauge"].items()}
+    gc_checks = events["image_gc_checks"]
     unpacked = events["buffer_readback_payload_bytes"]
     packed = events["buffer_readback_packed_bytes"]
     upload_regions = events["buffer_upload_regions"]
@@ -136,6 +167,27 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
             "image_full_upload_requests": events["image_upload_requests"],
             "image_full_upload_guest_bytes": events["image_upload_guest_bytes"],
         },
+        "g2_resource_lifecycle": {
+            "snapshot_count": events["resource_snapshots"],
+            "image_slots_live_last_sample": gauges["image_slots_live"],
+            "image_slots_capacity_last_sample": gauges["image_slots_capacity"],
+            "image_slots_registered_last_sample": gauges["image_slots_registered"],
+            "native_images_live_last_sample": gauges["native_images_live"],
+            "image_views_live_last_sample": gauges["image_views_live"],
+            "image_slots_peak_observed": gauges["image_slots_peak_observed"],
+            "image_views_peak_observed": gauges["image_views_peak_observed"],
+            "image_gc_checks": gc_checks,
+            "image_gc_below_memory_trigger": events["image_gc_below_trigger"],
+            "image_gc_below_trigger_share": (
+                round(events["image_gc_below_trigger"] / gc_checks, 6)
+                if gc_checks else None
+            ),
+            "image_gc_root_candidates": events["image_gc_root_candidates"],
+            "image_gc_root_retire_requests": events["image_gc_root_retire_requests"],
+            "image_gc_skipped_tiled": events["image_gc_skipped_tiled"],
+            "image_gc_skipped_unpressured": events["image_gc_skipped_unpressured"],
+            "image_gc_skipped_readback": events["image_gc_skipped_readback"],
+        },
         "decision": "INSUFFICIENT_FOR_PRODUCTION_GO",
         "limitations": [
             "Scope nanoseconds are elapsed wall time including waits, not CPU cycles or GPU timestamps.",
@@ -144,6 +196,9 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
             "Transfer byte counters describe requested/staged/packed amounts, not measured PCIe throughput.",
             "Upload region counts are MemoryTracker-selected copies, not a count of unique dirty pages.",
             "Full image upload guest bytes are requested footprints, not actual transferred GPU bytes.",
+            "Resource snapshot/peak gauges are sampled under the texture lock, not absolute all-time maxima.",
+            "Image slots and views are not Vulkan VkDeviceMemory allocations or fixed-capacity driver object limits.",
+            "GC root retire requests are logical removals, not immediate native resource destruction.",
             "Instrumentation itself changes timing; compare identical opt-in builds and complete game traces.",
         ],
     }

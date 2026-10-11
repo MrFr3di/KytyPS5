@@ -29,7 +29,14 @@ public:
     DescriptorPushWrites, DescriptorSetWrites, BufferUploadStagedBytes,
     BufferUploadRegions, BufferUploadBatches, BufferReadbackPackedBytes,
     BufferReadbackPayloadBytes, BufferReadbackRegions,
-    TextureReadbackRequestedBytes, ImageUploadRequests, ImageUploadGuestBytes, Count
+    TextureReadbackRequestedBytes, ImageUploadRequests, ImageUploadGuestBytes,
+    ImageGcChecks, ImageGcBelowTrigger, ImageGcRootCandidates, ImageGcRootRetireRequests,
+    ImageGcSkippedTiled, ImageGcSkippedUnpressured, ImageGcSkippedReadback,
+    ResourceSnapshots, Count
+  };
+  enum class Gauge : size_t {
+    ImageSlotsLive, ImageSlotsCapacity, ImageSlotsRegistered, NativeImagesLive,
+    ImageViewsLive, ImageSlotsPeakObserved, ImageViewsPeakObserved, Count
   };
   struct Sample {
     uint64_t calls = 0;
@@ -49,7 +56,15 @@ public:
     "descriptor_push_writes", "descriptor_set_writes", "buffer_upload_staged_bytes",
     "buffer_upload_regions", "buffer_upload_batches", "buffer_readback_packed_bytes",
     "buffer_readback_payload_bytes", "buffer_readback_regions",
-    "texture_readback_requested_bytes", "image_upload_requests", "image_upload_guest_bytes"
+    "texture_readback_requested_bytes", "image_upload_requests", "image_upload_guest_bytes",
+    "image_gc_checks", "image_gc_below_trigger", "image_gc_root_candidates",
+    "image_gc_root_retire_requests", "image_gc_skipped_tiled",
+    "image_gc_skipped_unpressured", "image_gc_skipped_readback", "resource_snapshots"
+  };
+  static constexpr std::array<const char*, static_cast<size_t>(Gauge::Count)> GaugeNames = {
+    "image_slots_live", "image_slots_capacity", "image_slots_registered",
+    "native_images_live", "image_views_live", "image_slots_peak_observed",
+    "image_views_peak_observed"
   };
 
   class Scope final {
@@ -112,6 +127,24 @@ public:
     m_events[static_cast<size_t>(event)].fetch_add(value, std::memory_order_relaxed);
   }
 
+  // Diagnostic snapshot: the caller serializes slot and view mutations.
+  // Observed high-water is a lower bound because snapshots are sampled.
+  void ObserveResourceSnapshot(uint64_t slots, uint64_t capacity, uint64_t registered,
+                               uint64_t native_images, uint64_t views) noexcept {
+    SetGauge(Gauge::ImageSlotsLive, slots);
+    SetGauge(Gauge::ImageSlotsCapacity, capacity);
+    SetGauge(Gauge::ImageSlotsRegistered, registered);
+    SetGauge(Gauge::NativeImagesLive, native_images);
+    SetGauge(Gauge::ImageViewsLive, views);
+    ObserveMax(Gauge::ImageSlotsPeakObserved, slots);
+    ObserveMax(Gauge::ImageViewsPeakObserved, views);
+    Count(Event::ResourceSnapshots);
+  }
+
+  [[nodiscard]] uint64_t Get(Gauge gauge) const noexcept {
+    return m_gauges[static_cast<size_t>(gauge)].load(std::memory_order_relaxed);
+  }
+
   [[nodiscard]] Sample Get(Stage stage) const noexcept {
     const auto& item = m_stages[static_cast<size_t>(stage)];
     return {item.calls.load(std::memory_order_relaxed),
@@ -136,14 +169,28 @@ public:
       std::fprintf(out, "event,%s,%llu,0,0\n", EventNames[i],
                    static_cast<unsigned long long>(Get(static_cast<Event>(i))));
     }
+    for (size_t i = 0; i < GaugeNames.size(); ++i) {
+      std::fprintf(out, "gauge,%s,%llu,0,0\n", GaugeNames[i],
+                   static_cast<unsigned long long>(Get(static_cast<Gauge>(i))));
+    }
   }
 
 private:
+  void SetGauge(Gauge g, uint64_t value) noexcept {
+    m_gauges[static_cast<size_t>(g)].store(value, std::memory_order_relaxed);
+  }
+  void ObserveMax(Gauge g, uint64_t value) noexcept {
+    auto& counter = m_gauges[static_cast<size_t>(g)];
+    auto old = counter.load(std::memory_order_relaxed);
+    while (old < value && !counter.compare_exchange_weak(
+        old, value, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+  }
   struct Totals {
     std::atomic<uint64_t> calls{0}, inclusive_ns{0}, self_ns{0};
   };
   std::array<Totals, static_cast<size_t>(Stage::Count)> m_stages{};
   std::array<std::atomic<uint64_t>, static_cast<size_t>(Event::Count)> m_events{};
+  std::array<std::atomic<uint64_t>, static_cast<size_t>(Gauge::Count)> m_gauges{};
 };
 
 } // namespace Libs::Graphics

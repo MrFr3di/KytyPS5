@@ -188,6 +188,8 @@ private:
 	bool                          m_range_telemetry_enabled = false;
 #endif
 #if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+	// Called under m_lock (or during single-threaded teardown).
+	void RecordResourceSnapshot() noexcept;
 	// Diagnostic-only; bounded atomic counters, no guest addresses or dynamic traces.
 	mutable TextureWorkloadAttribution m_workload_telemetry;
 	bool m_workload_telemetry_enabled = false;
