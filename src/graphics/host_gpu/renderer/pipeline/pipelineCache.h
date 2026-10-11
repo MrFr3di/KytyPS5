@@ -112,6 +112,10 @@ public:
 		vk::Pipeline            pipeline              = nullptr;
 		vk::DescriptorSetLayout descriptor_set_layout = nullptr;
 		bool                    uses_push_descriptors = false;
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+		std::array<uint64_t,4>  descriptor_types_per_set {};
+		bool                    descriptor_types_known = false;
+#endif
 	};
 
 	struct GraphicsPrograms {

@@ -7,6 +7,9 @@
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/debug.h"
 #include "graphics/host_gpu/renderer/pipeline/descriptors.h"
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+#include "graphics/host_gpu/renderer/pipeline/descriptorHeapTypeBudget.h"
+#endif
 #include "graphics/host_gpu/renderer/pipeline/pipelineCache.h"
 #include "graphics/host_gpu/renderer/pipeline/shaderResourceBarrier.h"
 #include "graphics/host_gpu/renderer/render.h"
@@ -206,6 +209,27 @@ static void CreateDescriptorLayout(GraphicContext& graphics, PipelineCache::Pipe
 	create.pBindings    = bindings.data();
 	EXIT_IF(graphics.device.createDescriptorSetLayout(
 	            &create, nullptr, &pipeline.descriptor_set_layout) != vk::Result::eSuccess);
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+	// Weights are derived from exactly the bindings passed to Vulkan.
+	// Push-descriptor layouts will never be charged to DescriptorHeap.
+	DescriptorLayoutBudget type_budget;
+	for (const auto& binding: bindings) {
+		switch (binding.descriptorType) {
+			case vk::DescriptorType::eStorageBuffer:
+				type_budget.Add(DescriptorBudgetKind::StorageBuffer, binding.descriptorCount); break;
+			case vk::DescriptorType::eSampledImage:
+				type_budget.Add(DescriptorBudgetKind::SampledImage, binding.descriptorCount); break;
+			case vk::DescriptorType::eStorageImage:
+				type_budget.Add(DescriptorBudgetKind::StorageImage, binding.descriptorCount); break;
+			case vk::DescriptorType::eSampler:
+				type_budget.Add(DescriptorBudgetKind::Sampler, binding.descriptorCount); break;
+			default:
+				type_budget.Add(DescriptorBudgetKind::Unsupported, binding.descriptorCount); break;
+		}
+	}
+	pipeline.descriptor_types_per_set = type_budget.Counts();
+	pipeline.descriptor_types_known = type_budget.Known();
+#endif
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)

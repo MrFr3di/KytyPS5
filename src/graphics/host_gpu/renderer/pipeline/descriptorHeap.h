@@ -22,7 +22,12 @@ public:
 	~DescriptorHeap();
 	KYTY_CLASS_NO_COPY(DescriptorHeap);
 
-	[[nodiscard]] vk::DescriptorSet Commit(vk::DescriptorSetLayout layout);
+	[[nodiscard]] vk::DescriptorSet Commit(vk::DescriptorSetLayout layout
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+	                                       , const std::array<uint64_t,4>& types_per_set,
+	                                       bool types_known
+#endif
+	);
 
 private:
 	static constexpr uint32_t DescriptorSetBatch = 32;
@@ -31,6 +36,10 @@ private:
 		std::array<vk::DescriptorSet, DescriptorSetBatch> sets {};
 		uint32_t                                          size       = 0;
 		uint32_t                                          allocation = DescriptorSetBatch;
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+		std::array<uint64_t,4>                            diagnostic_types_per_set {};
+		bool                                              diagnostic_types_known = false;
+#endif
 	};
 
 	[[nodiscard]] bool Allocate(vk::DescriptorSetLayout layout, Batch& batch);

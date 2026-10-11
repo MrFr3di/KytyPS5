@@ -63,3 +63,13 @@ CLI to create **no** descriptor telemetry CSV without runtime opt-in. Real
 descriptor activity requires representative game traces and a Vulkan device;
 no synthetic GPU results are invented. A subsequent full OFF-mode build would
 add extra confidence in production-build zero-cost behavior.
+
+## G3-D3 — exact per-type descriptor pool usage, diagnostic build only
+
+`shaders.cpp::CreateDescriptorLayout` receives the `vk::DescriptorSetLayoutBinding` span and passes that exact span to `createDescriptorSetLayout`. Each binding has its native `descriptorType` and declared `descriptorCount`; both graphics and compute pipelines call this function. G3-D3 collects a per-set vector for storage buffer, sampled image, storage image, and sampler only. Unknown/future types fail closed, rather than being invented as one of the known types.
+
+In the G3-D2 opt-in build only, `Pipeline` carries this four-value vector and a known/unknown bit. The non-push `RenderExecutor::CommitBindings` passes the vector to `DescriptorHeap::Commit`. An allocated cached batch retains the type vector of its owning Vulkan layout. Every successful `vkAllocateDescriptorSets` increments allocated weighted counts, consuming a set increments issued counts, and erasing spare batches on pool rollover increments discarded counts. Push descriptors never touch this pool. The original non-instrumented `Commit` signature remains unchanged in compile-time OFF builds. No real Vulkan behavior, batch size, pool limits, or GPU tick rules are changed.
+
+CPU contract: for each of the four types, allocated = issued + discarded + currently cached. An unsupported type, missing metadata or mismatched ledger produces `type_counts_known,0` and zeroed type totals, not an apparent exact estimate. The isolated portable C++20 tests construct declared layout bindings and reject missing typed allocation, type overdraft, duplicate discard and unsupported kinds. A Python source contract rejects mutations that replace the true Vulkan layout span with draw writes or drop metadata. Runs on Windows and Linux GitHub-hosted CI, with Windows full emulator/CLI build and no-runtime-opt-in CSV check.
+
+This counts **Vulkan descriptor pool entries by type**, not bytes of driver memory, real GPU time, VRAM or FPS; no representative game trace has yet been captured. Production optimization remains NO-GO pending real device-backed evidence.

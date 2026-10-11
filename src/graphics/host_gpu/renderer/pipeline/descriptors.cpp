@@ -1182,7 +1182,13 @@ void RenderExecutor::CommitBindings(CommandBuffer&                     buffer,
 				texture_cache_for_metrics.m_workload_telemetry.Count(
 				    TextureWorkloadAttribution::Event::DescriptorSetWrites, m_descriptor_writes.size());
 #endif
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+			const auto set = m_context.GetDescriptorHeap().Commit(
+			    pipeline.descriptor_set_layout, pipeline.descriptor_types_per_set,
+			    pipeline.descriptor_types_known);
+#else
 			const auto set = m_context.GetDescriptorHeap().Commit(pipeline.descriptor_set_layout);
+#endif
 			for (auto& write: m_descriptor_writes) {
 				write.dstSet = set;
 			}

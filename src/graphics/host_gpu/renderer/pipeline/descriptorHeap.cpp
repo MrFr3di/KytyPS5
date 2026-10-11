@@ -49,16 +49,31 @@ DescriptorHeap::~DescriptorHeap() {
 	}
 }
 
-vk::DescriptorSet DescriptorHeap::Commit(vk::DescriptorSetLayout layout) {
+vk::DescriptorSet DescriptorHeap::Commit(vk::DescriptorSetLayout layout
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+                                        , const std::array<uint64_t,4>& types_per_set,
+                                        bool types_known
+#endif
+) {
 	KYTY_PROFILER_FUNCTION();
 	EXIT_IF(layout == nullptr);
 
 	auto& batch = m_sets[layout];
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+	// A successfully cached batch owns its original type vector. On refill
+	// (size==0), use the just-created pipeline layout's fresh metadata.
+	if (m_telemetry_enabled && batch.size == 0) {
+		batch.diagnostic_types_per_set = types_per_set;
+		batch.diagnostic_types_known = types_known;
+	}
+#endif
 	if (batch.size != 0) {
 #if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
 		if (m_telemetry_enabled) {
 			m_telemetry.CacheHit();
 			m_telemetry.Issued();
+			m_telemetry.IssuedTyped(batch.diagnostic_types_per_set,
+			                       batch.diagnostic_types_known);
 		}
 #endif
 		return batch.sets[--batch.size];
@@ -68,7 +83,11 @@ vk::DescriptorSet DescriptorHeap::Commit(vk::DescriptorSetLayout layout) {
 #endif
 	if (Allocate(layout, batch)) {
 #if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
-		if (m_telemetry_enabled) m_telemetry.Issued();
+		if (m_telemetry_enabled) {
+			m_telemetry.Issued();
+			m_telemetry.IssuedTyped(batch.diagnostic_types_per_set,
+			                       batch.diagnostic_types_known);
+		}
 #endif
 		return batch.sets[--batch.size];
 	}
@@ -91,18 +110,38 @@ vk::DescriptorSet DescriptorHeap::Commit(vk::DescriptorSetLayout layout) {
 #if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
 	if (m_telemetry_enabled) {
 		uint64_t discarded = 0;
+		std::array<uint64_t,4> discarded_types {};
+		bool discarded_types_known = true;
 		for (const auto& [cached_layout, cached_batch]: m_sets) {
 			(void)cached_layout;
 			discarded += cached_batch.size;
+			if (cached_batch.size != 0 && !cached_batch.diagnostic_types_known)
+				discarded_types_known = false;
+			if (cached_batch.diagnostic_types_known) {
+				for (size_t i=0;i<4;++i)
+					discarded_types[i] += uint64_t(cached_batch.size) *
+					                      cached_batch.diagnostic_types_per_set[i];
+			}
 		}
 		m_telemetry.DiscardUnused(discarded);
+		m_telemetry.DiscardTyped(discarded, discarded_types, discarded_types_known);
 	}
 #endif
 	m_sets.clear();
 	auto& fresh_batch = m_sets[layout];
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+	if (m_telemetry_enabled) {
+		fresh_batch.diagnostic_types_per_set = types_per_set;
+		fresh_batch.diagnostic_types_known = types_known;
+	}
+#endif
 	EXIT_IF(!Allocate(layout, fresh_batch));
 #if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
-	if (m_telemetry_enabled) m_telemetry.Issued();
+	if (m_telemetry_enabled) {
+		m_telemetry.Issued();
+		m_telemetry.IssuedTyped(fresh_batch.diagnostic_types_per_set,
+		                       fresh_batch.diagnostic_types_known);
+	}
 #endif
 	return fresh_batch.sets[--fresh_batch.size];
 }
@@ -124,7 +163,12 @@ bool DescriptorHeap::Allocate(vk::DescriptorSetLayout layout, Batch& batch) {
 		if (result == vk::Result::eSuccess) {
 			batch.size = batch.allocation;
 #if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
-			if (m_telemetry_enabled) m_telemetry.Allocated(batch.allocation);
+			if (m_telemetry_enabled) {
+				m_telemetry.Allocated(batch.allocation);
+				m_telemetry.AllocatedTyped(batch.allocation,
+				                           batch.diagnostic_types_per_set,
+				                           batch.diagnostic_types_known);
+			}
 #endif
 			return true;
 		}

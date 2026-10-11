@@ -656,6 +656,12 @@ add_executable(source_anchored_texture_lifetime_tests EXCLUDE_FROM_ALL
 target_link_libraries(source_anchored_texture_lifetime_tests common fmt::fmt)
 target_include_directories(source_anchored_texture_lifetime_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# G3-D3: portable native-layout descriptor type weighted budget oracle.
+add_executable(descriptor_heap_type_budget_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/DescriptorHeapTypeBudgetTests.cpp"
+)
+target_include_directories(descriptor_heap_type_budget_tests PRIVATE ${KYTY_SOURCE_DIR})
+
 # G3-D2: standalone source-backed runtime accounting header (no Vulkan dependency).
 add_executable(descriptor_heap_telemetry_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/DescriptorHeapTelemetryTests.cpp"
@@ -744,6 +750,7 @@ if(BUILD_TESTING)
 	add_test(NAME descriptor_heap_capacity_oracle COMMAND $<TARGET_FILE:descriptor_heap_capacity_oracle_tests>)
 	add_test(NAME descriptor_heap_waste COMMAND $<TARGET_FILE:descriptor_heap_capacity_oracle_tests> --waste)
 	add_test(NAME descriptor_heap_telemetry COMMAND $<TARGET_FILE:descriptor_heap_telemetry_tests>)
+	add_test(NAME descriptor_heap_type_budget COMMAND $<TARGET_FILE:descriptor_heap_type_budget_tests>)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
