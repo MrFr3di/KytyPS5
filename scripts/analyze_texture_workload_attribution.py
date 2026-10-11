@@ -19,7 +19,7 @@ STAGES = (
     "unregister_image", "resolve_texture", "rebind_images",
     "descriptor_commit", "texture_readback", "process_readbacks",
     "buffer_download", "buffer_upload", "buffer_synchronize",
-    "buffer_acquire", "buffer_garbage_collect",
+    "buffer_acquire", "buffer_garbage_collect", "resource_snapshot",
 )
 EVENTS = (
     "rebind_reuse", "rebind_missing", "rebind_unregistered",
@@ -32,11 +32,13 @@ EVENTS = (
     "image_gc_root_candidates", "image_gc_root_retire_requests",
     "image_gc_skipped_tiled", "image_gc_skipped_unpressured",
     "image_gc_skipped_readback", "resource_snapshots",
+    "image_deferred_queued", "image_deferred_completed", "image_immediate_destroyed",
 )
 GAUGES = (
     "image_slots_live", "image_slots_capacity", "image_slots_registered",
     "native_images_live", "image_views_live", "image_slots_peak_observed",
-    "image_views_peak_observed",
+    "image_views_peak_observed", "image_deferred_pending",
+    "image_deferred_peak_observed",
 )
 MAX_U64 = (1 << 64) - 1
 
@@ -91,6 +93,10 @@ def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
             gauges["image_slots_peak_observed"] < gauges["image_slots_live"] or
             gauges["image_views_peak_observed"] < gauges["image_views_live"]):
         raise ValueError("invalid resource occupancy snapshot")
+    if gauges["image_deferred_pending"] > gauges["image_deferred_peak_observed"]:
+        raise ValueError("pending deferred erasures exceed recorded peak")
+    if events["image_deferred_completed"]["count"] > events["image_deferred_queued"]["count"]:
+        raise ValueError("deferred erasures completed without being queued")
     if events["image_gc_below_trigger"]["count"] > events["image_gc_checks"]["count"]:
         raise ValueError("GC early returns exceed checks")
     if events["image_gc_root_retire_requests"]["count"] > events["image_gc_root_candidates"]["count"]:
@@ -187,6 +193,13 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
             "image_gc_skipped_tiled": events["image_gc_skipped_tiled"],
             "image_gc_skipped_unpressured": events["image_gc_skipped_unpressured"],
             "image_gc_skipped_readback": events["image_gc_skipped_readback"],
+            "image_deferred_queued": events["image_deferred_queued"],
+            "image_deferred_completed": events["image_deferred_completed"],
+            "image_immediate_destroyed": events["image_immediate_destroyed"],
+            "image_deferred_pending_last_read": gauges["image_deferred_pending"],
+            "image_deferred_peak_observed": gauges["image_deferred_peak_observed"],
+            "resource_snapshot_total_wall_ns": stages["resource_snapshot"]["inclusive_ns"],
+            "resource_snapshot_calls": stages["resource_snapshot"]["count"],
         },
         "decision": "INSUFFICIENT_FOR_PRODUCTION_GO",
         "limitations": [
@@ -199,6 +212,8 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
             "Resource snapshot/peak gauges are sampled under the texture lock, not absolute all-time maxima.",
             "Image slots and views are not Vulkan VkDeviceMemory allocations or fixed-capacity driver object limits.",
             "GC root retire requests are logical removals, not immediate native resource destruction.",
+            "Deferred completion is recorded after physical SlotVector erase, not proof of Vulkan driver reclaim.",
+            "Deferred events and gauges are relaxed atomics, not a linearizable cross-field snapshot.",
             "Instrumentation itself changes timing; compare identical opt-in builds and complete game traces.",
         ],
     }

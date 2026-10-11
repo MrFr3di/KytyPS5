@@ -85,6 +85,31 @@ int main() {
   telemetry.Count(Stats::Event::ImageGcBelowTrigger, 2);
   telemetry.Count(Stats::Event::ImageGcRootCandidates, 4);
   telemetry.Count(Stats::Event::ImageGcRootRetireRequests);
+  // The scheduler may run callbacks later or synchronously while draining.
+  telemetry.DeferredImageQueued();
+  telemetry.DeferredImageQueued();
+  assert(telemetry.Get(Stats::Gauge::ImageDeferredPending) == 2);
+  assert(telemetry.Get(Stats::Gauge::ImageDeferredPeakObserved) == 2);
+  telemetry.DeferredImageCompleted();
+  assert(telemetry.Get(Stats::Gauge::ImageDeferredPending) == 1);
+  telemetry.DeferredImageQueued();
+  telemetry.DeferredImageCompleted();
+  telemetry.DeferredImageCompleted();
+  assert(telemetry.Get(Stats::Gauge::ImageDeferredPending) == 0);
+  assert(telemetry.Get(Stats::Gauge::ImageDeferredPeakObserved) == 2);
+  assert(telemetry.Get(Stats::Event::ImageDeferredQueued) == 3);
+  assert(telemetry.Get(Stats::Event::ImageDeferredCompleted) == 3);
+  // Spurious callback completions cannot wrap the pending gauge.
+  telemetry.DeferredImageCompleted();
+  assert(telemetry.Get(Stats::Event::ImageDeferredCompleted) == 3);
+  telemetry.Count(Stats::Event::ImageImmediateDestroyed);
+  {
+    Stats::Scope sampling(telemetry, Stats::Stage::ResourceSnapshot, true);
+    volatile unsigned spin = 0;
+    for (unsigned i = 0; i < 1000; ++i) spin = spin + i;
+    (void)spin;
+  }
+  assert(telemetry.Get(Stats::Stage::ResourceSnapshot).calls == 1);
   telemetry.Record(Stats::Stage::BufferGarbageCollect, 3, 5);
   auto clipped = telemetry.Get(Stats::Stage::BufferGarbageCollect);
   assert(clipped.calls == 1 && clipped.inclusive_ns == 3 && clipped.self_ns == 3);
@@ -107,5 +132,9 @@ int main() {
   assert(csv.find("gauge,image_slots_live,5,0,0\n") != std::string::npos);
   assert(csv.find("gauge,image_views_peak_observed,34,0,0\n") != std::string::npos);
   assert(csv.find("event,image_gc_checks,3,0,0\n") != std::string::npos);
+  assert(csv.find("event,image_deferred_queued,3,0,0\n") != std::string::npos);
+  assert(csv.find("event,image_deferred_completed,3,0,0\n") != std::string::npos);
+  assert(csv.find("gauge,image_deferred_pending,0,0,0\n") != std::string::npos);
+  assert(csv.find("gauge,image_deferred_peak_observed,2,0,0\n") != std::string::npos);
   std::puts("TextureWorkloadAttributionTests: PASS");
 }

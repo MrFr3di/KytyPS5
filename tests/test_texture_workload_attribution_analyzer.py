@@ -49,6 +49,9 @@ class AttributionSchemaTests(unittest.TestCase):
                 "image_slots_registered": 3, "native_images_live": 4,
                 "image_views_live": 9, "image_slots_peak_observed": 12,
                 "image_views_peak_observed": 25,
+                "image_deferred_queued": 6, "image_deferred_completed": 4,
+                "image_immediate_destroyed": 3, "image_deferred_pending": 2,
+                "image_deferred_peak_observed": 4,
             }
             if row["name"] in resource:
                 row["count"] = str(resource[row["name"]])
@@ -76,6 +79,8 @@ class AttributionSchemaTests(unittest.TestCase):
         self.assertEqual(r["g1_transfer_granularity"]["image_full_upload_guest_bytes"], 8192)
         self.assertEqual(r["g2_resource_lifecycle"]["image_views_peak_observed"], 25)
         self.assertEqual(r["g2_resource_lifecycle"]["image_gc_below_trigger_share"], 0.8)
+        self.assertEqual(r["g2_resource_lifecycle"]["image_deferred_pending_last_read"], 2)
+        self.assertEqual(r["g2_resource_lifecycle"]["image_deferred_peak_observed"], 4)
         self.assertEqual(r["decision"], "INSUFFICIENT_FOR_PRODUCTION_GO")
 
     def test_reject_self_larger_than_inclusive(self):
@@ -138,6 +143,14 @@ class AttributionSchemaTests(unittest.TestCase):
     def test_reject_missing_resource_snapshot(self):
         with self.assertRaises(ValueError):
             self.fixture(lambda rows: next(r for r in rows if r["name"] == "resource_snapshots").update(count="0"))
+
+    def test_reject_deferred_completion_exceeding_queue(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda rows: next(r for r in rows if r["name"] == "image_deferred_completed").update(count="7"))
+
+    def test_reject_deferred_pending_above_peak(self):
+        with self.assertRaises(ValueError):
+            self.fixture(lambda rows: next(r for r in rows if r["name"] == "image_deferred_pending").update(count="5"))
 
     def test_reject_event_timing(self):
         with self.assertRaises(ValueError):

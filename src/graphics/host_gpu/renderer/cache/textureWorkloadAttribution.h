@@ -22,7 +22,8 @@ public:
     ImageInitialize, ImageCopy, CpuAliasInvalidate, GpuMemoryInvalidate,
     GarbageCollect, RegisterImage, UnregisterImage, ResolveTexture,
     RebindImages, DescriptorCommit, TextureReadback, ProcessReadbacks,
-    BufferDownload, BufferUpload, BufferSynchronize, BufferAcquire, BufferGarbageCollect, Count
+    BufferDownload, BufferUpload, BufferSynchronize, BufferAcquire, BufferGarbageCollect,
+    ResourceSnapshot, Count
   };
   enum class Event : size_t {
     RebindReuse, RebindMissing, RebindUnregistered, RebindNeeded,
@@ -32,11 +33,13 @@ public:
     TextureReadbackRequestedBytes, ImageUploadRequests, ImageUploadGuestBytes,
     ImageGcChecks, ImageGcBelowTrigger, ImageGcRootCandidates, ImageGcRootRetireRequests,
     ImageGcSkippedTiled, ImageGcSkippedUnpressured, ImageGcSkippedReadback,
-    ResourceSnapshots, Count
+    ResourceSnapshots, ImageDeferredQueued, ImageDeferredCompleted, ImageImmediateDestroyed,
+    Count
   };
   enum class Gauge : size_t {
     ImageSlotsLive, ImageSlotsCapacity, ImageSlotsRegistered, NativeImagesLive,
-    ImageViewsLive, ImageSlotsPeakObserved, ImageViewsPeakObserved, Count
+    ImageViewsLive, ImageSlotsPeakObserved, ImageViewsPeakObserved,
+    ImageDeferredPending, ImageDeferredPeakObserved, Count
   };
   struct Sample {
     uint64_t calls = 0;
@@ -49,7 +52,8 @@ public:
     "image_initialize", "image_copy", "cpu_alias_invalidate", "gpu_memory_invalidate",
     "garbage_collect", "register_image", "unregister_image", "resolve_texture",
     "rebind_images", "descriptor_commit", "texture_readback", "process_readbacks",
-    "buffer_download", "buffer_upload", "buffer_synchronize", "buffer_acquire", "buffer_garbage_collect"
+    "buffer_download", "buffer_upload", "buffer_synchronize", "buffer_acquire",
+    "buffer_garbage_collect", "resource_snapshot"
   };
   static constexpr std::array<const char*, static_cast<size_t>(Event::Count)> EventNames = {
     "rebind_reuse", "rebind_missing", "rebind_unregistered", "rebind_needed",
@@ -59,12 +63,13 @@ public:
     "texture_readback_requested_bytes", "image_upload_requests", "image_upload_guest_bytes",
     "image_gc_checks", "image_gc_below_trigger", "image_gc_root_candidates",
     "image_gc_root_retire_requests", "image_gc_skipped_tiled",
-    "image_gc_skipped_unpressured", "image_gc_skipped_readback", "resource_snapshots"
+    "image_gc_skipped_unpressured", "image_gc_skipped_readback", "resource_snapshots",
+    "image_deferred_queued", "image_deferred_completed", "image_immediate_destroyed"
   };
   static constexpr std::array<const char*, static_cast<size_t>(Gauge::Count)> GaugeNames = {
     "image_slots_live", "image_slots_capacity", "image_slots_registered",
     "native_images_live", "image_views_live", "image_slots_peak_observed",
-    "image_views_peak_observed"
+    "image_views_peak_observed", "image_deferred_pending", "image_deferred_peak_observed"
   };
 
   class Scope final {
@@ -125,6 +130,24 @@ public:
 
   void Count(Event event, uint64_t value = 1) noexcept {
     m_events[static_cast<size_t>(event)].fetch_add(value, std::memory_order_relaxed);
+  }
+
+  // Called BEFORE scheduling a deferred image erase; callbacks can run inline
+  // during scheduler drain. These atomics never retain guest IDs or pointers.
+  void DeferredImageQueued() noexcept {
+    auto& pending = m_gauges[static_cast<size_t>(Gauge::ImageDeferredPending)];
+    const auto current = pending.fetch_add(1, std::memory_order_relaxed) + 1;
+    ObserveMax(Gauge::ImageDeferredPeakObserved, current);
+    Count(Event::ImageDeferredQueued);
+  }
+
+  // Called AFTER physical slot erasure (including its Image destructor).
+  void DeferredImageCompleted() noexcept {
+    auto& pending = m_gauges[static_cast<size_t>(Gauge::ImageDeferredPending)];
+    auto before = pending.load(std::memory_order_relaxed);
+    while (before != 0 && !pending.compare_exchange_weak(
+        before, before - 1, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+    if (before != 0) Count(Event::ImageDeferredCompleted);
   }
 
   // Diagnostic snapshot: the caller serializes slot and view mutations.

@@ -138,6 +138,37 @@ policy must first be implemented in an independent test oracle.
 This stage is measurement-only and does not change image registration, native
 resource ownership, Vulkan calls, LRU policy, or scheduler synchronization.
 
+## G2-A1: deferred image lifetime and snapshot overhead
+
+`image_deferred_queued` increments when `DeleteImage` places a logical
+retirement onto the scheduler path. The matching `image_deferred_completed`
+increments **after** the existing `SlotVector::erase` callback runs, which
+executes the `Image` destructor (including cached Vulkan image-view destroy
+calls). `image_immediate_destroyed` counts erases taken when the scheduler
+is inactive; it does not contribute to deferred backlog. These are counts
+of image objects, including depth/stencil associations, not only GC roots.
+
+`image_deferred_pending` and `image_deferred_peak_observed` are actual
+atomic enqueue/completion backlog values: unlike the sampled slot/view peaks,
+their high-water updates occur on every tracked deferred erase. They do
+not measure actual Vulkan driver reclamation, command queue depth, or time
+between enqueue and completion. The handler may execute inline during
+scheduler drain, so enqueue is recorded **before** scheduling.
+
+The new `resource_snapshot` timing stage records the host wall time of the
+existing linear `SlotVector` sampling pass (once per 128 GC calls and at
+normal teardown). When called from a GC scope, its inclusive duration is
+subtracted from the enclosing same-recorder GC self time. This helps quantify
+probe overhead but cannot replace an uninstrumented control. CSV metrics
+are separate relaxed atomic reads; values are not guaranteed to be an
+instantaneously consistent cross-field snapshot if callbacks are concurrent.
+
+**Acceptance:** Windows CI can prove that counters compile, preserve
+schema/invariants and do not run without opt-in. A gameplay bottleneck,
+retirement lag, memory leak, or GPU resource-limit issue requires repeated
+real Windows GPU workload and driver observations; absent that, all
+production eviction changes remain NO-GO.
+
 ## Measurement interpretation and limitations
 
 ```powershell

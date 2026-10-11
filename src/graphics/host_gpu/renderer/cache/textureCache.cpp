@@ -189,6 +189,9 @@ TextureCache::~TextureCache() {
 
 #if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
 void TextureCache::RecordResourceSnapshot() noexcept {
+	TextureWorkloadAttribution::Scope scope(
+	    m_workload_telemetry, TextureWorkloadAttribution::Stage::ResourceSnapshot,
+	    m_workload_telemetry_enabled);
 	// The cache lock is already owned in GC; teardown is single-threaded.
 	// Cached image views are kept in each Image until physical destruction.
 	uint64_t registered = 0;
@@ -352,9 +355,22 @@ void TextureCache::DeleteImage(ImageId id) {
 	}
 	UnregisterImage(id);
 	if (m_scheduler.Active()) {
-		m_scheduler.DeferOperation([this, id] { m_slot_images.erase(id); });
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+		// Queue accounting precedes DeferOperation: draining may run inline.
+		if (m_workload_telemetry_enabled) m_workload_telemetry.DeferredImageQueued();
+#endif
+		m_scheduler.DeferOperation([this, id] {
+			m_slot_images.erase(id);
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+			if (m_workload_telemetry_enabled) m_workload_telemetry.DeferredImageCompleted();
+#endif
+		});
 	} else {
 		m_slot_images.erase(id);
+#if defined(KYTY_TEXTURE_WORKLOAD_TELEMETRY) && KYTY_TEXTURE_WORKLOAD_TELEMETRY
+		if (m_workload_telemetry_enabled)
+			m_workload_telemetry.Count(TextureWorkloadAttribution::Event::ImageImmediateDestroyed);
+#endif
 	}
 }
 
