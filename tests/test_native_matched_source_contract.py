@@ -5,17 +5,25 @@ ROOT=Path(__file__).resolve().parents[1]
 CANON=ROOT/"src/graphics/host_gpu/renderer/cache/textureCache.cpp"
 SIDECAR=ROOT/"src/graphics/host_gpu/renderer/cache/nativeLazyRangeSidecar.h"
 BENCH=ROOT/"tests/NativeMatchedRangeBench.cpp"
+WALK=ROOT/"src/graphics/host_gpu/renderer/cache/canonicalOwnerPageWalk.h"
 
 def read():
-    return CANON.read_text(encoding="utf8"),SIDECAR.read_text(encoding="utf8"),BENCH.read_text(encoding="utf8")
+    return (CANON.read_text(encoding="utf8"),SIDECAR.read_text(encoding="utf8"),
+            BENCH.read_text(encoding="utf8"),WALK.read_text(encoding="utf8"))
 
-def audit(c,s,b):
+def audit(c,s,b,w):
     start=c.find("TextureCache::ImageIds TextureCache::FindImagesInRegion(")
     stop=c.find("\nImageId TextureCache::GetNullImage(",start)
     if start<0 or stop<=start:return False
     fn=c[start:stop]
-    for key in ("m_image_page_table.Find(page)",
-                "image->query_epoch == query_epoch",
+    # The original canonical Find(page) is now instantiated by the OFF
+    # specialization of the shared production page-walk header. Verify BOTH
+    # the production dispatch and the exact nonallocating fallback source.
+    if ("ForEachCanonicalOwnerPage<skip_never_allocated_buckets>(" not in fn or
+        "m_image_page_table, pages," not in fn or
+        "table.Find(page)" not in w):
+        return False
+    for key in ("image->query_epoch == query_epoch",
                 "image->query_epoch = query_epoch;",
                 "image->Overlaps(address, size, page_overlap)",
                 "result.push_back(id);"):
