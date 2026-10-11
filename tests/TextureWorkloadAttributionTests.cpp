@@ -70,8 +70,8 @@ int main() {
   assert(telemetry.Get(Stats::Event::BufferReadbackPackedBytes) == 128);
   assert(telemetry.Get(Stats::Event::ImageUploadRequests) == 1);
   assert(telemetry.Get(Stats::Event::ImageUploadGuestBytes) == 8192);
-  telemetry.Record(Stats::Stage::ImageCopy, 3, 5);
-  auto clipped = telemetry.Get(Stats::Stage::ImageCopy);
+  telemetry.Record(Stats::Stage::BufferGarbageCollect, 3, 5);
+  auto clipped = telemetry.Get(Stats::Stage::BufferGarbageCollect);
   assert(clipped.calls == 1 && clipped.inclusive_ns == 3 && clipped.self_ns == 3);
   auto* file = std::tmpfile();
   assert(file);
@@ -88,6 +88,6 @@ int main() {
   assert(csv.find("event,buffer_upload_regions,3,0,0\n") != std::string::npos);
   assert(csv.find("event,buffer_readback_payload_bytes,123,0,0\n") != std::string::npos);
   assert(csv.find("event,image_upload_guest_bytes,8192,0,0\n") != std::string::npos);
-  assert(csv.find("stage,image_copy,1,3,3\n") != std::string::npos);
+  assert(csv.find("stage,buffer_garbage_collect,1,3,3\n") != std::string::npos);
   std::puts("TextureWorkloadAttributionTests: PASS");
 }
