@@ -53,11 +53,11 @@ def parse_csv(text: str) -> dict[str, int]:
             raise ValueError(f"uint64 overflow: {key}")
         stats[key] = value
     if not CORE.issubset(stats):
-        raise ValueError(f"missing core metrics: {sorted(CORE - stats)}")
+        raise ValueError(f"missing core metrics: {sorted(CORE - stats.keys())}")
     if stats["schema_version"] not in (1, 2):
         raise ValueError("unsupported schema_version")
     if stats["schema_version"] == 2 and not EPOCH.issubset(stats):
-        raise ValueError(f"missing G3-D4 per-epoch metrics: {sorted(EPOCH - stats)}")
+        raise ValueError(f"missing G3-D4 per-epoch metrics: {sorted(EPOCH - stats.keys())}")
     return stats
 
 
