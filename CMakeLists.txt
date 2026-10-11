@@ -193,6 +193,7 @@ option(KYTY_BUILD_LAUNCHER "Build Qt launcher" ON)
 # KYTY-INDEX-001: diagnostic-only; absent from normal production builds.
 option(KYTY_TEXTURE_RANGE_TELEMETRY "Compile optional TextureCache range statistics" OFF)
 option(KYTY_TEXTURE_WORKLOAD_TELEMETRY "Compile optional end-to-end texture CPU attribution" OFF)
+option(KYTY_DESCRIPTOR_HEAP_TELEMETRY "Optional descriptor heap telemetry" OFF)
 
 config_compiler_and_linker()
 
@@ -655,6 +656,12 @@ add_executable(source_anchored_texture_lifetime_tests EXCLUDE_FROM_ALL
 target_link_libraries(source_anchored_texture_lifetime_tests common fmt::fmt)
 target_include_directories(source_anchored_texture_lifetime_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# G3-D2: standalone source-backed runtime accounting header (no Vulkan dependency).
+add_executable(descriptor_heap_telemetry_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/DescriptorHeapTelemetryTests.cpp"
+)
+target_include_directories(descriptor_heap_telemetry_tests PRIVATE ${KYTY_SOURCE_DIR})
+
 # G3-D0: standalone no-Vulkan descriptor heap capacity and lifetime model.
 add_executable(descriptor_heap_capacity_oracle_tests EXCLUDE_FROM_ALL
     "${KYTY_TESTS_DIR}/DescriptorHeapCapacityOracleTests.cpp"
@@ -736,6 +743,7 @@ if(BUILD_TESTING)
 	add_test(NAME transfer_range_scatter COMMAND $<TARGET_FILE:transfer_range_pareto_tests> --scatter)
 	add_test(NAME descriptor_heap_capacity_oracle COMMAND $<TARGET_FILE:descriptor_heap_capacity_oracle_tests>)
 	add_test(NAME descriptor_heap_waste COMMAND $<TARGET_FILE:descriptor_heap_capacity_oracle_tests> --waste)
+	add_test(NAME descriptor_heap_telemetry COMMAND $<TARGET_FILE:descriptor_heap_telemetry_tests>)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
@@ -874,6 +882,9 @@ if(KYTY_TEXTURE_RANGE_TELEMETRY)
 endif()
 if(KYTY_TEXTURE_WORKLOAD_TELEMETRY)
 	target_compile_definitions(kyty_emulator PRIVATE KYTY_TEXTURE_WORKLOAD_TELEMETRY=1)
+endif()
+if(KYTY_DESCRIPTOR_HEAP_TELEMETRY)
+	target_compile_definitions(kyty_emulator PRIVATE KYTY_DESCRIPTOR_HEAP_TELEMETRY=1)
 endif()
 configure_macos_guest_address_space(kyty_emulator)
 

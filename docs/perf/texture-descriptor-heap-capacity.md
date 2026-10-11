@@ -23,3 +23,43 @@ The proof obligation is descriptor-*set* capacity, not bytes or GPU time; sets h
 The 5 synthetically generated scenario families and 5 policy candidates produce 25 rows of identical 1,536-commit workloads each: fixed batch 1, 8, 16, 32 and counterfactual **cold8_warm32**. This last policy starts a layout at batch 8, changes to 32 only after that layout exhausts its first successful batch, and reverts to cold 8 whenever a new pool is created/reused. It is **not** present in Kyty production. Policies are compared by cumulative unused discarded sets, active spare sets, allocation attempts, halving retries, pool rollovers/new pools and peak pending pools; no model accepts a premature reset.
 
 G3-D1 emits `descriptor-heap-waste-fast.csv` (Windows fast), `descriptor-heap-waste.csv` (Windows full), and `descriptor-heap-waste-linux.csv` (Ubuntu GCC) with the same deterministic set counts and explicit `G3_D1_MODEL_ONLY,PASS` marker. The old G3-D0 CSV and old CI checks remain intact. The same executable now has an additional `descriptor_heap_waste` CTest; no new CI job or standalone target. All three exact-HEAD hosted checks, full Windows emulator and CLI must pass for **CPU MODEL ACCEPT**. Driver allocation latency, Vulkan fragmentation, frame timings and application layout traces are absent. Therefore no production adaptive allocation or descriptor heap refactor is authorized.
+
+## G3-D2 — real DescriptorHeap aggregate opt-in instrumentation
+
+Unlike G3-D0/D1 synthetic models, the enabled build instruments **actual production
+`DescriptorHeap` control flow** around `Commit`, `Allocate` and `CreateDescriptorPool`,
+including the native Vulkan success/retry error branches. It does not change
+pool allocation, set dispatch, pool reuse, GPU-tick safety, or destruction order.
+
+The new `KYTY_DESCRIPTOR_HEAP_TELEMETRY` CMake option defaults **OFF**. An
+instrumented executable must also be started with the exact environment value
+`KYTY_DESCRIPTOR_HEAP_TRACE=1`; otherwise the recorder is dormant and does not
+create a CSV. Once an enabled `DescriptorHeap` is destroyed after GPU shutdown,
+it writes `descriptor-heap-telemetry.csv` with aggregate counters only. No
+pointer, guest address, shader or Vulkan layout handle is reported.
+
+Counted: successful allocated descriptor sets, issued sets, currently cached
+spares, discarded cached spares on pool rollover, cache hit/miss, real Vulkan
+allocation attempts, out-of-pool/fragmented failures, pool creations, pool
+resets, pool retirements, and peak pending pools. The conservation relation is
+
+```
+allocated_sets = issued_sets + discarded_unused_sets + currently_cached_unused_sets
+```
+
+No Vulkan descriptor-type composition is available at this layer. CSV explicitly
+sets `type_counts_known,0`, `gpu_timing_known,0`. A set count is **not**
+a descriptor count, memory footprint, GPU elapsed time, or a speedup.
+
+`DescriptorHeapTelemetryTests.cpp` exercises the exact header-only C++ recorder
+without GPU using independently known 40 allocated / 13 issued / 27 discarded
+fixture and four intentional incorrect transitions. It verifies CSV
+schema and negative controls under GitHub-hosted Windows clang-cl and Linux GCC.
+A separate source-contract test ensures instrumentation remains compile-time
+and runtime gated, inserted into real Vulkan branches and counted before
+`m_sets.clear()`. These tests do not execute real Vulkan: Windows full CI still
+builds the complete instrumented `kyty_emulator` and requires its headless
+CLI to create **no** descriptor telemetry CSV without runtime opt-in. Real
+descriptor activity requires representative game traces and a Vulkan device;
+no synthetic GPU results are invented. A subsequent full OFF-mode build would
+add extra confidence in production-build zero-cost behavior.

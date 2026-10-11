@@ -68,6 +68,16 @@ jobs:
           .\descriptor_heap_capacity_fast.exe --waste > descriptor-heap-waste-fast.csv
           if ($LASTEXITCODE -ne 0) { Get-Content descriptor-heap-waste-fast.csv; exit $LASTEXITCODE }
           if (-not (Select-String -Path descriptor-heap-waste-fast.csv -SimpleMatch 'G3_D1_MODEL_ONLY,PASS')) { throw 'G3-D1 waste model missing' }
+      - name: Compile/run opt-in G3-D2 accumulator and source contract
+        shell: pwsh
+        run: |
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I src tests/DescriptorHeapTelemetryTests.cpp /Fe:descriptor_heap_telemetry_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\descriptor_heap_telemetry_fast.exe > descriptor-heap-telemetry-fast.txt
+          if ($LASTEXITCODE -ne 0) { Get-Content descriptor-heap-telemetry-fast.txt; exit $LASTEXITCODE }
+          if (-not (Select-String -Path descriptor-heap-telemetry-fast.txt -SimpleMatch 'G3_D2_TELEMETRY_PASS')) { throw 'G3-D2 telemetry test missing' }
+          python -m unittest discover -s tests -p "test_descriptor_heap_telemetry_source_contract.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compile G1-B1 real RangeSet transfer planner
         shell: pwsh
         run: |
@@ -170,6 +180,7 @@ jobs:
             transfer-scatter-safe-fast.csv
             descriptor-heap-capacity-fast.csv
             descriptor-heap-waste-fast.csv
+            descriptor-heap-telemetry-fast.txt
           if-no-files-found: warn
 
   windows-range-index:
@@ -234,6 +245,7 @@ jobs:
             -DKYTY_BUILD_LAUNCHER=OFF ^
             -DKYTY_TEXTURE_RANGE_TELEMETRY=ON ^
             -DKYTY_TEXTURE_WORKLOAD_TELEMETRY=ON ^
+            -DKYTY_DESCRIPTOR_HEAP_TELEMETRY=ON ^
             -DCMAKE_C_COMPILER=clang-cl ^
             -DCMAKE_CXX_COMPILER=clang-cl ^
             -DCMAKE_C_COMPILER_LAUNCHER=sccache ^
@@ -242,12 +254,12 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests descriptor_heap_capacity_oracle_tests --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|native_lazy_range_sidecar)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|native_lazy_range_sidecar)$"
 
       - name: Export G2-B1 fault coverage
         shell: cmd
@@ -293,6 +305,16 @@ jobs:
           _Build\windows-range\descriptor_heap_capacity_oracle_tests.exe --waste > descriptor-heap-waste.csv
           if errorlevel 1 exit /b 1
           findstr /c:"G3_D1_MODEL_ONLY,PASS" descriptor-heap-waste.csv
+          if errorlevel 1 exit /b 1
+
+      - name: G3-D2 DescriptorHeap source instrumentation contract
+        shell: cmd
+        run: |
+          python -m unittest discover -s tests -p test_descriptor_heap_telemetry_source_contract.py -v
+          if errorlevel 1 exit /b 1
+          _Build\windows-range\descriptor_heap_telemetry_tests.exe > descriptor-heap-telemetry.txt
+          if errorlevel 1 exit /b 1
+          findstr /c:"G3_D2_TELEMETRY_PASS" descriptor-heap-telemetry.txt
           if errorlevel 1 exit /b 1
 
       - name: A/B/C deterministic CPU replay
@@ -342,6 +364,10 @@ jobs:
             echo Workload telemetry emitted without runtime opt-in!
             exit /b 1
           )
+          if exist descriptor-heap-telemetry.csv (
+            echo Descriptor telemetry emitted without runtime opt-in!
+            exit /b 1
+          )
 
       - name: Upload machine and test evidence
         if: always()
@@ -361,6 +387,7 @@ jobs:
             transfer-scatter-safe.csv
             descriptor-heap-capacity.csv
             descriptor-heap-waste.csv
+            descriptor-heap-telemetry.txt
           if-no-files-found: warn
 
   linux-cpu-research:
@@ -379,6 +406,7 @@ jobs:
           mkdir -p _Build/linux-cpu
           { echo "SHA=${{ github.sha }}"; uname -a; g++ --version | head -n 1; python3 --version; } > linux-runner-details.txt
           g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/DescriptorHeapCapacityOracleTests.cpp -o _Build/linux-cpu/descriptor_heap_capacity_oracle_tests
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapTelemetryTests.cpp -o _Build/linux-cpu/descriptor_heap_telemetry_tests
           g++ -std=c++20 -O2 -I tests/TextureRangeSupport -I src tests/TransferRangeParetoTests.cpp -o _Build/linux-cpu/transfer_range_pareto_tests
           g++ -std=c++20 -O2 -I src tests/ImageRangeIndexTests.cpp -o _Build/linux-cpu/image_range_index_tests
           g++ -std=c++20 -O2 tests/TextureGcPolicyOracleTests.cpp -o _Build/linux-cpu/texture_gc_policy_oracle_tests
@@ -390,6 +418,9 @@ jobs:
           grep -F 'G3_MODEL_ONLY,PASS' descriptor-heap-capacity-linux.csv
           _Build/linux-cpu/descriptor_heap_capacity_oracle_tests --waste > descriptor-heap-waste-linux.csv
           grep -F 'G3_D1_MODEL_ONLY,PASS' descriptor-heap-waste-linux.csv
+          _Build/linux-cpu/descriptor_heap_telemetry_tests > descriptor-heap-telemetry-linux.txt
+          grep -F 'G3_D2_TELEMETRY_PASS' descriptor-heap-telemetry-linux.txt
+          python3 -m unittest discover -s tests -p 'test_descriptor_heap_telemetry_source_contract.py' -v
           _Build/linux-cpu/transfer_range_pareto_tests > transfer-range-pareto-linux.csv
           grep -F 'decision,MODEL_ONLY' transfer-range-pareto-linux.csv
           _Build/linux-cpu/transfer_range_pareto_tests --scatter > transfer-scatter-safe-linux.csv
@@ -407,6 +438,7 @@ jobs:
             linux-runner-details.txt
             descriptor-heap-capacity-linux.csv
             descriptor-heap-waste-linux.csv
+            descriptor-heap-telemetry-linux.txt
             transfer-range-pareto-linux.csv
             transfer-scatter-safe-linux.csv
             image-range-differential-linux.txt

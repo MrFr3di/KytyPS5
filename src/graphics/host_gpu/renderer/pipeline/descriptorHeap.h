@@ -3,6 +3,9 @@
 
 #include "common/common.h"
 #include "graphics/host_gpu/vulkanCommon.h"
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+#include "graphics/host_gpu/renderer/pipeline/descriptorHeapTelemetry.h"
+#endif
 
 #include <array>
 #include <deque>
@@ -38,6 +41,10 @@ private:
 	vk::DescriptorPool                                  m_current_pool = nullptr;
 	std::deque<std::pair<vk::DescriptorPool, uint64_t>> m_pending_pools;
 	std::unordered_map<vk::DescriptorSetLayout, Batch>  m_sets;
+#if defined(KYTY_DESCRIPTOR_HEAP_TELEMETRY) && KYTY_DESCRIPTOR_HEAP_TELEMETRY
+	DescriptorHeapTelemetry m_telemetry;
+	bool                    m_telemetry_enabled = false;
+#endif
 };
 
 } // namespace Libs::Graphics
