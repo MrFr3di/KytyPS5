@@ -68,8 +68,12 @@ def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
     events = rows["event"]
     if events["buffer_upload_batches"]["count"] > events["buffer_upload_regions"]["count"]:
         raise ValueError("more upload batches than regions")
-    if events["buffer_upload_regions"]["count"] == 0 and events["buffer_upload_staged_bytes"]["count"]:
+    staged_bytes = events["buffer_upload_staged_bytes"]["count"]
+    if events["buffer_upload_regions"]["count"] == 0 and staged_bytes:
         raise ValueError("upload bytes without upload regions")
+    # RegionManager returns aligned 4-KiB tracker-page ranges.
+    if staged_bytes % 4096:
+        raise ValueError("upload staged bytes not aligned to tracker pages")
     if events["buffer_readback_packed_bytes"]["count"] < events["buffer_readback_payload_bytes"]["count"]:
         raise ValueError("packed readback smaller than payload")
     if events["buffer_readback_regions"]["count"] == 0 and (
@@ -85,7 +89,11 @@ def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
 def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
     stages = rows["stage"]
     total_self = sum(row["self_ns"] for row in stages.values())
-    ordered = sorted(stages.items(), key=lambda item: item[1]["self_ns"], reverse=True)
+    # A valid empty trace must not rank an unobserved stage as the bottleneck.
+    ordered = sorted(
+        ((name, metric) for name, metric in stages.items() if metric["count"] > 0),
+        key=lambda item: item[1]["self_ns"], reverse=True
+    )
     rebinding = sum(rows["event"][name]["count"] for name in
                     ("rebind_reuse", "rebind_missing",
                      "rebind_unregistered", "rebind_needed"))
@@ -116,6 +124,7 @@ def analyze(rows: dict[str, dict[str, dict[str, int]]]) -> dict:
         "g1_transfer_granularity": {
             "buffer_upload_regions": upload_regions,
             "buffer_upload_batches": events["buffer_upload_batches"],
+            "buffer_upload_tracker_page_instances": events["buffer_upload_staged_bytes"] // 4096,
             "buffer_upload_staged_bytes_per_region": (
                 round(events["buffer_upload_staged_bytes"] / upload_regions, 2)
                 if upload_regions else None
