@@ -64,7 +64,9 @@ int main() {
   Check(u.Valid()&&!u.TypedKnown(),"unknown must not claim exact");
   fp=std::tmpfile();Check(fp!=nullptr,"tmpfile unknown");
   u.WriteCsv(fp);std::rewind(fp);char csv_unknown[4096]{};
-  std::fread(csv_unknown,1,sizeof(csv_unknown)-1,fp);std::fclose(fp);
+  const auto n_unknown=std::fread(csv_unknown,1,sizeof(csv_unknown)-1,fp);
+  std::fclose(fp);
+  Check(n_unknown>100,"unknown CSV nonempty");
   Check(std::strstr(csv_unknown,"type_counts_known,0\n")!=nullptr,
         "unknown reported");
   Check(std::strstr(csv_unknown,"allocated_storage_buffer,0\n")!=nullptr,
