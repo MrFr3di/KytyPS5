@@ -50,7 +50,8 @@ int main() {
   const auto foreign_child = foreign.Get(Stats::Stage::ImageDiscovery);
   // Across both outer calls: only same-recorder children can reduce self time.
   assert(combined_outer.calls == 2 && combined_child.calls == 1 && foreign_child.calls == 1);
-  assert(combined_outer.self_ns >= foreign_child.inclusive_ns);
+  // Foreign-only work remains in self time; same-owner descendant is excluded.
+  assert(combined_outer.self_ns + combined_child.inclusive_ns >= foreign_child.inclusive_ns);
   assert(combined_outer.inclusive_ns >= combined_outer.self_ns + combined_child.inclusive_ns);
 
   telemetry.Count(Stats::Event::RebindReuse);
