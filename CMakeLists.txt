@@ -655,6 +655,13 @@ add_executable(source_anchored_texture_lifetime_tests EXCLUDE_FROM_ALL
 target_link_libraries(source_anchored_texture_lifetime_tests common fmt::fmt)
 target_include_directories(source_anchored_texture_lifetime_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# G1-B1: production RangeSet readback-plan/packing trade-off oracle.
+add_executable(transfer_range_pareto_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/TransferRangeParetoTests.cpp"
+)
+target_link_libraries(transfer_range_pareto_tests common fmt::fmt)
+target_include_directories(transfer_range_pareto_tests PRIVATE ${KYTY_SOURCE_DIR})
+
 # S4-B4: separate native SlotId-aware sidecar with canonical page-table oracle.
 add_executable(native_lazy_range_sidecar_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/NativeLazyRangeSidecarTests.cpp"
@@ -720,6 +727,7 @@ if(BUILD_TESTING)
 	add_test(NAME texture_gc_policy_oracle COMMAND $<TARGET_FILE:texture_gc_policy_oracle_tests>)
 	add_test(NAME texture_gc_lifecycle_fault COMMAND $<TARGET_FILE:texture_gc_lifecycle_fault_tests>)
 	add_test(NAME source_anchored_texture_lifetime COMMAND $<TARGET_FILE:source_anchored_texture_lifetime_tests>)
+	add_test(NAME transfer_range_pareto COMMAND $<TARGET_FILE:transfer_range_pareto_tests>)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
@@ -805,6 +813,7 @@ if(BUILD_TESTING)
 		texture_gc_policy_oracle_tests
 		texture_gc_lifecycle_fault_tests
 		source_anchored_texture_lifetime_tests
+		transfer_range_pareto_tests
 		native_lazy_range_sidecar_tests
 		memory_tracker_tests
 		page_manager_tests

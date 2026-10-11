@@ -22,7 +22,7 @@ It checks real destructor invocation at physical erase, unregistered-but-residen
 - `CommandScheduler::QueueOperation` captures `CurrentTick()`, drains through a safely unlocked inline fallback; `PopPendingOperations` requires GPU-fence readiness, waits priority dependencies before running normal callbacks.
 - `CommandScheduler::Shutdown` waits the submitted tick, drains normal/priority queues and joins the priority thread before `Closed`; `RenderContext` destroys its scheduler before member `TextureCache`.
 
-11 intentionally mutated source fixtures (plus actual-source and formatting-neutral positive controls) must be rejected. These are **textual source-change tripwires, not C++ AST or concurrency proofs**: they are deliberately strict, may require reviewed changes when legitimate source implementation changes, and can be bypassed by semantically equivalent unsafe source changes. They supplement but do not replace runtime tests. The directly compiled real containers are the primary executable evidence.
+10 intentionally mutated source fixtures (plus actual-source and formatting-neutral positive controls) must be rejected. These are **textual source-change tripwires, not C++ AST or concurrency proofs**: they are deliberately strict, may require reviewed changes when legitimate source implementation changes, and can be bypassed by semantically equivalent unsafe source changes. They supplement but do not replace runtime tests. The directly compiled real containers are the primary executable evidence.
 
 ## GitHub-only acceptance
 
