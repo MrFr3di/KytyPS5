@@ -88,6 +88,23 @@ jobs:
           if (-not (Select-String -Path descriptor-heap-type-budget-fast.txt -SimpleMatch 'G3_D3_TYPE_BUDGET_PASS')) { throw 'G3-D3 model missing' }
           python -m unittest discover -s tests -p "test_descriptor_heap_type_budget_source_contract.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: G3-D4 physical pool epoch and strict CSV analyzer
+        shell: pwsh
+        run: |
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I src tests/DescriptorHeapPoolBudgetTests.cpp /Fe:descriptor_heap_pool_budget_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\descriptor_heap_pool_budget_fast.exe > descriptor-heap-pool-budget-fast.txt
+          if ($LASTEXITCODE -ne 0) { Get-Content descriptor-heap-pool-budget-fast.txt; exit $LASTEXITCODE }
+          if (-not (Select-String -Path descriptor-heap-pool-budget-fast.txt -SimpleMatch 'G3_D4_POOL_BUDGET_PASS')) { throw 'G3-D4 epoch test missing' }
+          .\descriptor_heap_pool_budget_fast.exe --csv > descriptor-heap-pool-fixture-fast.csv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_descriptor_heap_pool_analyzer.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_descriptor_heap_pool_source_contract.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/analyze_descriptor_heap_pool.py descriptor-heap-pool-fixture-fast.csv > descriptor-heap-pool-analysis-fast.csv
+          if ($LASTEXITCODE -ne 0) { Get-Content descriptor-heap-pool-analysis-fast.csv; exit $LASTEXITCODE }
+          if (-not (Select-String -Path descriptor-heap-pool-analysis-fast.csv -SimpleMatch 'CONSISTENT_DIAGNOSTIC')) { throw 'G3-D4 analyzer did not accept synthetic fixture' }
       - name: Compile G1-B1 real RangeSet transfer planner
         shell: pwsh
         run: |
@@ -192,6 +209,9 @@ jobs:
             descriptor-heap-waste-fast.csv
             descriptor-heap-telemetry-fast.txt
             descriptor-heap-type-budget-fast.txt
+            descriptor-heap-pool-budget-fast.txt
+            descriptor-heap-pool-fixture-fast.csv
+            descriptor-heap-pool-analysis-fast.csv
           if-no-files-found: warn
 
   windows-range-index:
@@ -265,12 +285,12 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests descriptor_heap_type_budget_tests --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests descriptor_heap_type_budget_tests descriptor_heap_pool_budget_tests --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|native_lazy_range_sidecar)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|descriptor_heap_pool_budget|native_lazy_range_sidecar)$"
 
       - name: Export G2-B1 fault coverage
         shell: cmd
@@ -336,6 +356,24 @@ jobs:
           _Build\windows-range\descriptor_heap_type_budget_tests.exe > descriptor-heap-type-budget.txt
           if errorlevel 1 exit /b 1
           findstr /c:"G3_D3_TYPE_BUDGET_PASS" descriptor-heap-type-budget.txt
+          if errorlevel 1 exit /b 1
+
+      - name: G3-D4 source-matched physical pool budget analyzer
+        shell: cmd
+        run: |
+          python -m unittest discover -s tests -p test_descriptor_heap_pool_analyzer.py -v
+          if errorlevel 1 exit /b 1
+          python -m unittest discover -s tests -p test_descriptor_heap_pool_source_contract.py -v
+          if errorlevel 1 exit /b 1
+          _Build\windows-range\descriptor_heap_pool_budget_tests.exe > descriptor-heap-pool-budget.txt
+          if errorlevel 1 exit /b 1
+          findstr /c:"G3_D4_POOL_BUDGET_PASS" descriptor-heap-pool-budget.txt
+          if errorlevel 1 exit /b 1
+          _Build\windows-range\descriptor_heap_pool_budget_tests.exe --csv > descriptor-heap-pool-fixture.csv
+          if errorlevel 1 exit /b 1
+          python tests\analyze_descriptor_heap_pool.py descriptor-heap-pool-fixture.csv > descriptor-heap-pool-analysis.csv
+          if errorlevel 1 exit /b 1
+          findstr /c:"CONSISTENT_DIAGNOSTIC" descriptor-heap-pool-analysis.csv
           if errorlevel 1 exit /b 1
 
       - name: A/B/C deterministic CPU replay
@@ -410,6 +448,9 @@ jobs:
             descriptor-heap-waste.csv
             descriptor-heap-telemetry.txt
             descriptor-heap-type-budget.txt
+            descriptor-heap-pool-budget.txt
+            descriptor-heap-pool-fixture.csv
+            descriptor-heap-pool-analysis.csv
           if-no-files-found: warn
 
   linux-cpu-research:
@@ -430,6 +471,7 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/DescriptorHeapCapacityOracleTests.cpp -o _Build/linux-cpu/descriptor_heap_capacity_oracle_tests
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapTelemetryTests.cpp -o _Build/linux-cpu/descriptor_heap_telemetry_tests
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapTypeBudgetTests.cpp -o _Build/linux-cpu/descriptor_heap_type_budget_tests
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapPoolBudgetTests.cpp -o _Build/linux-cpu/descriptor_heap_pool_budget_tests
           g++ -std=c++20 -O2 -I tests/TextureRangeSupport -I src tests/TransferRangeParetoTests.cpp -o _Build/linux-cpu/transfer_range_pareto_tests
           g++ -std=c++20 -O2 -I src tests/ImageRangeIndexTests.cpp -o _Build/linux-cpu/image_range_index_tests
           g++ -std=c++20 -O2 tests/TextureGcPolicyOracleTests.cpp -o _Build/linux-cpu/texture_gc_policy_oracle_tests
@@ -447,6 +489,13 @@ jobs:
           _Build/linux-cpu/descriptor_heap_type_budget_tests > descriptor-heap-type-budget-linux.txt
           grep -F 'G3_D3_TYPE_BUDGET_PASS' descriptor-heap-type-budget-linux.txt
           python3 -m unittest discover -s tests -p 'test_descriptor_heap_type_budget_source_contract.py' -v
+          _Build/linux-cpu/descriptor_heap_pool_budget_tests > descriptor-heap-pool-budget-linux.txt
+          grep -F 'G3_D4_POOL_BUDGET_PASS' descriptor-heap-pool-budget-linux.txt
+          _Build/linux-cpu/descriptor_heap_pool_budget_tests --csv > descriptor-heap-pool-fixture-linux.csv
+          python3 -m unittest discover -s tests -p 'test_descriptor_heap_pool_analyzer.py' -v
+          python3 -m unittest discover -s tests -p 'test_descriptor_heap_pool_source_contract.py' -v
+          python3 tests/analyze_descriptor_heap_pool.py descriptor-heap-pool-fixture-linux.csv > descriptor-heap-pool-analysis-linux.csv
+          grep -F 'CONSISTENT_DIAGNOSTIC' descriptor-heap-pool-analysis-linux.csv
           _Build/linux-cpu/transfer_range_pareto_tests > transfer-range-pareto-linux.csv
           grep -F 'decision,MODEL_ONLY' transfer-range-pareto-linux.csv
           _Build/linux-cpu/transfer_range_pareto_tests --scatter > transfer-scatter-safe-linux.csv
@@ -466,6 +515,9 @@ jobs:
             descriptor-heap-waste-linux.csv
             descriptor-heap-telemetry-linux.txt
             descriptor-heap-type-budget-linux.txt
+            descriptor-heap-pool-budget-linux.txt
+            descriptor-heap-pool-fixture-linux.csv
+            descriptor-heap-pool-analysis-linux.csv
             transfer-range-pareto-linux.csv
             transfer-scatter-safe-linux.csv
             image-range-differential-linux.txt

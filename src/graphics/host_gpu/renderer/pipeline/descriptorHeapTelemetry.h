@@ -30,8 +30,14 @@ public:
     uint64_t peak_cached_unused_sets = 0;
   };
 
-  void PoolCreated() noexcept { ++m_counts.created_pools; }
-  void PoolReset() noexcept { ++m_counts.reset_pools; }
+  void PoolCreated() noexcept {
+    ++m_counts.created_pools;
+    StartPoolEpoch();
+  }
+  void PoolReset() noexcept {
+    ++m_counts.reset_pools;
+    StartPoolEpoch(); // Called only AFTER successful vkResetDescriptorPool
+  }
   void PoolRetired(uint64_t pending_after) noexcept {
     ++m_counts.retired_pools;
     m_counts.peak_pending_pools = std::max(m_counts.peak_pending_pools, pending_after);
@@ -44,6 +50,8 @@ public:
     else ++m_counts.rejected_out_of_pool;
   }
   void Allocated(uint32_t count) noexcept {
+    m_pool_current_sets += count; // actual successful allocations in THIS pool epoch
+    m_pool_peak_sets = std::max(m_pool_peak_sets, m_pool_current_sets);
     m_counts.allocated_sets += count;
     m_counts.peak_cached_unused_sets =
         std::max(m_counts.peak_cached_unused_sets, CachedUnusedSets());
@@ -59,7 +67,12 @@ public:
     m_typed_seen=true;
     m_typed_allocated_sets+=count;
     if(!known){m_types_complete=false;return;}
-    for(size_t i=0;i<4;++i)m_type_allocated[i]+=uint64_t(count)*weight[i];
+    for(size_t i=0;i<4;++i) {
+      const uint64_t charged = uint64_t(count)*weight[i];
+      m_type_allocated[i]+=charged;
+      m_pool_current_types[i]+=charged;
+      m_pool_peak_types[i]=std::max(m_pool_peak_types[i],m_pool_current_types[i]);
+    }
   }
   void IssuedTyped(const std::array<uint64_t,4>& weight,bool known) noexcept {
     m_typed_seen=true;++m_typed_issued_sets;
@@ -95,6 +108,24 @@ public:
     for(size_t i=0;i<4;++i)
       v.cached[i]=v.allocated[i]-v.issued[i]-v.discarded[i];
     return v;
+  }
+  // Source-aligned current-pool epoch budgets, not lifetime totals.
+  static constexpr uint64_t PoolSetCapacity = 1024;
+  static constexpr std::array<uint64_t,4> PoolTypeCapacity{
+    8192,8192,1024,1024
+  };
+  [[nodiscard]] bool PoolBudgetKnown() const noexcept {
+    return TypedKnown() && m_counts.allocated_sets>0;
+  }
+  [[nodiscard]] bool PoolBudgetFeasible() const noexcept {
+    if(!PoolBudgetKnown()||m_pool_peak_sets>PoolSetCapacity)return false;
+    for(size_t i=0;i<4;++i)
+      if(m_pool_peak_types[i]>PoolTypeCapacity[i])return false;
+    return true;
+  }
+  [[nodiscard]] uint64_t PeakPoolSets() const noexcept {return m_pool_peak_sets;}
+  [[nodiscard]] std::array<uint64_t,4> PeakPoolTypes() const noexcept {
+    return PoolBudgetKnown()?m_pool_peak_types:std::array<uint64_t,4>{};
   }
   [[nodiscard]] uint64_t CachedUnusedSets() const noexcept {
     if (m_counts.issued_sets > m_counts.allocated_sets ||
@@ -133,7 +164,7 @@ public:
       std::fprintf(file, "%s,%llu\n", key, static_cast<unsigned long long>(v));
     };
     const auto& c = m_counts;
-    write("schema_version", 1);
+    write("schema_version", 2);
     write("pool_creates", c.created_pools);
     write("pool_resets", c.reset_pools);
     write("pool_retires", c.retired_pools);
@@ -148,12 +179,21 @@ public:
     write("discarded_unused_sets", c.discarded_unused_sets);
     write("currently_cached_unused_sets", CachedUnusedSets());
     write("peak_cached_unused_sets", c.peak_cached_unused_sets);
+    write("pool_capacity_sets", PoolSetCapacity);
+    write("peak_pool_allocated_sets", m_pool_peak_sets);
+    write("pool_budget_known", uint64_t(PoolBudgetKnown()));
+    write("pool_budget_feasible", uint64_t(PoolBudgetFeasible()));
     write("type_counts_known",uint64_t(TypedKnown()));
     const auto typed=TypeSnapshot();
     static constexpr const char* buckets[]={
       "storage_buffer","sampled_image","storage_image","sampler"
     };
+    const auto peak_types=PeakPoolTypes();
     for(size_t i=0;i<4;++i) {
+      std::fprintf(file,"pool_capacity_%s,%llu\n",buckets[i],
+                   static_cast<unsigned long long>(PoolTypeCapacity[i]));
+      std::fprintf(file,"peak_pool_allocated_%s,%llu\n",buckets[i],
+                   static_cast<unsigned long long>(peak_types[i]));
       std::fprintf(file,"allocated_%s,%llu\n",buckets[i],
                    static_cast<unsigned long long>(typed.allocated[i]));
       std::fprintf(file,"issued_%s,%llu\n",buckets[i],
@@ -168,7 +208,13 @@ public:
     write("production_allocation_policy_modified", 0);
   }
 private:
+  void StartPoolEpoch() noexcept {
+    m_pool_current_sets=0;
+    m_pool_current_types={};
+  }
   Counts m_counts;
+  uint64_t m_pool_current_sets=0,m_pool_peak_sets=0;
+  std::array<uint64_t,4> m_pool_current_types{},m_pool_peak_types{};
   std::array<uint64_t,4> m_type_allocated{},m_type_issued{},m_type_discarded{};
   uint64_t m_typed_allocated_sets=0,m_typed_issued_sets=0,m_typed_discarded_sets=0;
   bool m_typed_seen=false,m_types_complete=true;
