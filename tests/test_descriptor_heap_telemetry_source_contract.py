@@ -38,7 +38,7 @@ def audit(c,h,m):
         ("bool DescriptorHeap::Allocate(", "m_telemetry.AllocateAttempt();", "allocateDescriptorSets(&allocate, batch.sets.data())"),
         ("bool DescriptorHeap::Allocate(", "m_telemetry.Allocated(batch.allocation);", "return true;"),
         ("bool DescriptorHeap::Allocate(", "m_telemetry.AllocateRejected(", "batch.allocation /= 2;"),
-        ("void DescriptorHeap::CreateDescriptorPool(", "m_telemetry.PoolCreated();", "}"),
+        ("void DescriptorHeap::CreateDescriptorPool(", "createDescriptorPool(&create, nullptr, &m_current_pool)", "m_telemetry.PoolCreated();"),
     )
     for (begin,x,y) in checks:
         section=c.find(begin)
