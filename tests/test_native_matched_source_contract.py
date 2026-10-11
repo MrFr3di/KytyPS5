@@ -47,6 +47,7 @@ def audit(c,s,b):
                 "track=true;",
                 "track=false;"):
         if key not in b:return False
+    if "++fallback;\n    return Canonical(q);" not in b:return False
     if "canonical_plus_native_lazy" not in b or "canonical_only" not in b:return False
     if "S4-B4b" not in b:return False
     return True
@@ -61,7 +62,8 @@ class NativeMatchedSourceContractTests(unittest.TestCase):
     def test_missing_production_dedup(self):
         self.wrong(0,"image->query_epoch == query_epoch","image->query_epoch != query_epoch")
     def test_no_sidecar_fallback(self):
-        self.wrong(2,"return Canonical(q);","return result;")
+        self.wrong(2,"++fallback;\n    return Canonical(q);",
+                   "++fallback;\n    return result;")
     def test_non_native_id(self):
         self.wrong(2,"using Id=Common::SlotId;","using Id=uint32_t;")
     def test_skip_canonical_registration(self):
