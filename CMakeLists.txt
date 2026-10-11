@@ -637,6 +637,11 @@ add_executable(texture_workload_attribution_tests EXCLUDE_FROM_ALL
 )
 target_include_directories(texture_workload_attribution_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# G2-B0: offline dual-pressure GC correctness test (never linked to emulator).
+add_executable(texture_gc_policy_oracle_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/TextureGcPolicyOracleTests.cpp"
+)
+
 # S4-B4: separate native SlotId-aware sidecar with canonical page-table oracle.
 add_executable(native_lazy_range_sidecar_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/NativeLazyRangeSidecarTests.cpp"
@@ -699,6 +704,7 @@ if(BUILD_TESTING)
 	add_test(NAME image_range_native_id COMMAND $<TARGET_FILE:image_range_native_id_tests>)
 	add_test(NAME texture_range_telemetry COMMAND $<TARGET_FILE:texture_range_telemetry_tests>)
 	add_test(NAME texture_workload_attribution COMMAND $<TARGET_FILE:texture_workload_attribution_tests>)
+	add_test(NAME texture_gc_policy_oracle COMMAND $<TARGET_FILE:texture_gc_policy_oracle_tests>)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
@@ -781,6 +787,7 @@ if(BUILD_TESTING)
 		image_range_native_id_tests
 		texture_range_telemetry_tests
 		texture_workload_attribution_tests
+		texture_gc_policy_oracle_tests
 		native_lazy_range_sidecar_tests
 		memory_tracker_tests
 		page_manager_tests
