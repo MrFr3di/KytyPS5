@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/cache/textureCache.h"
+#include "graphics/host_gpu/renderer/cache/canonicalOwnerPageWalk.h"
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -535,12 +536,16 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 	}
 
 	ImageIds result;
-	ForEachPage(address, size, [&](uint64_t page) {
-		const auto* owners = m_image_page_table.Find(page);
-		if (owners == nullptr) {
-			return;
-		}
-		owners->ForEach([&](ImageId id) {
+#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP
+	// ON: skip only L1 buckets that were never allocated; no second index.
+	constexpr bool skip_never_allocated_buckets = true;
+#else
+	// OFF is the default and preserves the original page-by-page traversal.
+	constexpr bool skip_never_allocated_buckets = false;
+#endif
+	ForEachCanonicalOwnerPage<skip_never_allocated_buckets>(
+	    m_image_page_table, pages, [&](size_t /*page*/, const ImageIds& owners) {
+		owners.ForEach([&](ImageId id) {
 #if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
 			if (m_range_telemetry_enabled) ++inspected_owners;
 #endif
@@ -556,7 +561,7 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 				result.push_back(id);
 			}
 		});
-	});
+	    });
 #if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
 	if (m_range_telemetry_enabled) {
 		const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(

@@ -686,6 +686,14 @@ add_executable(transfer_range_pareto_tests EXCLUDE_FROM_ALL
 target_link_libraries(transfer_range_pareto_tests common fmt::fmt)
 target_include_directories(transfer_range_pareto_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# S4-B5-A: source-bound canonical no-extra-index L1 bucket-skip oracle/benchmark.
+add_executable(canonical_bucket_walk_bench EXCLUDE_FROM_ALL
+    "${KYTY_TESTS_DIR}/CanonicalBucketWalkBench.cpp"
+)
+target_include_directories(canonical_bucket_walk_bench PRIVATE
+    ${KYTY_SOURCE_DIR} "${KYTY_TESTS_DIR}/TextureRangeSupport")
+target_link_libraries(canonical_bucket_walk_bench common fmt::fmt)
+
 # S4-B4b: native SlotId matched canonical vs canonical+lazy benchmark.
 add_executable(native_matched_range_bench EXCLUDE_FROM_ALL
     "${KYTY_TESTS_DIR}/NativeMatchedRangeBench.cpp"
@@ -767,6 +775,7 @@ if(BUILD_TESTING)
 	add_test(NAME descriptor_heap_pool_budget COMMAND $<TARGET_FILE:descriptor_heap_pool_budget_tests>)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME native_matched_range COMMAND $<TARGET_FILE:native_matched_range_bench> 0 0 0)
+	add_test(NAME canonical_bucket_walk COMMAND $<TARGET_FILE:canonical_bucket_walk_bench> 1 1 0)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
 	add_test(NAME archive_file COMMAND $<TARGET_FILE:archive_file_tests>)

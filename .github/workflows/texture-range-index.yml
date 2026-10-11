@@ -59,6 +59,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/NativeMatchedRangeBench.cpp /Fe:native_matched_range_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/CanonicalBucketWalkBench.cpp /Fe:canonical_bucket_walk_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and run G3-D0 descriptor heap CPU capacity
         shell: pwsh
         run: |
@@ -158,6 +160,16 @@ jobs:
           python tests/run_native_matched_bench.py ./native_matched_range_fast.exe native-matched-fast.csv native-matched-summary-fast.csv > native-matched-driver-fast.txt
           if ($LASTEXITCODE -ne 0) { Get-Content native-matched-driver-fast.txt; exit $LASTEXITCODE }
           if (-not (Select-String -Path native-matched-driver-fast.txt -SimpleMatch 'S4_B4B_MATCHED_PASS')) { throw 'S4-B4b matched native result missing' }
+      - name: S4-B5-A native canonical bucket-walk equivalence and measurement
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_canonical_bucket_walk_driver.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_canonical_bucket_walk_source_contract.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/run_canonical_bucket_walk.py ./canonical_bucket_walk_fast.exe canonical-bucket-fast.csv canonical-bucket-summary-fast.csv > canonical-bucket-driver-fast.txt
+          if ($LASTEXITCODE -ne 0) { Get-Content canonical-bucket-driver-fast.txt; exit $LASTEXITCODE }
+          if (-not (Select-String -Path canonical-bucket-driver-fast.txt -SimpleMatch 'S4_B5A_CANONICAL_PASS')) { throw 'S4-B5-A report missing' }
       - name: Run pure CPU A/B/C benchmark
         shell: pwsh
         run: |
@@ -227,6 +239,9 @@ jobs:
             native-matched-fast.csv
             native-matched-summary-fast.csv
             native-matched-driver-fast.txt
+            canonical-bucket-fast.csv
+            canonical-bucket-summary-fast.csv
+            canonical-bucket-driver-fast.txt
           if-no-files-found: warn
 
   windows-range-index:
@@ -290,6 +305,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release ^
             -DKYTY_BUILD_LAUNCHER=OFF ^
             -DKYTY_TEXTURE_RANGE_TELEMETRY=ON ^
+            -DKYTY_TEXTURE_CANONICAL_BUCKET_SKIP=ON ^
             -DKYTY_TEXTURE_WORKLOAD_TELEMETRY=ON ^
             -DKYTY_DESCRIPTOR_HEAP_TELEMETRY=ON ^
             -DCMAKE_C_COMPILER=clang-cl ^
@@ -300,12 +316,12 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests native_matched_range_bench descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests descriptor_heap_type_budget_tests descriptor_heap_pool_budget_tests --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests native_matched_range_bench canonical_bucket_walk_bench descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests descriptor_heap_type_budget_tests descriptor_heap_pool_budget_tests --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|descriptor_heap_pool_budget|native_lazy_range_sidecar|native_matched_range)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|descriptor_heap_pool_budget|native_lazy_range_sidecar|native_matched_range|canonical_bucket_walk)$"
 
       - name: Export G2-B1 fault coverage
         shell: cmd
@@ -403,6 +419,18 @@ jobs:
           findstr /c:"S4_B4B_MATCHED_PASS" native-matched-driver.txt
           if errorlevel 1 exit /b 1
 
+      - name: S4-B5-A production-shaped canonical L1 skip replay
+        shell: cmd
+        run: |
+          python -m unittest discover -s tests -p test_canonical_bucket_walk_driver.py -v
+          if errorlevel 1 exit /b 1
+          python -m unittest discover -s tests -p test_canonical_bucket_walk_source_contract.py -v
+          if errorlevel 1 exit /b 1
+          python tests\run_canonical_bucket_walk.py _Build\windows-range\canonical_bucket_walk_bench.exe canonical-bucket.csv canonical-bucket-summary.csv > canonical-bucket-driver.txt
+          if errorlevel 1 exit /b 1
+          findstr /c:"S4_B5A_CANONICAL_PASS" canonical-bucket-driver.txt
+          if errorlevel 1 exit /b 1
+
       - name: A/B/C deterministic CPU replay
         shell: cmd
         run: |
@@ -481,6 +509,9 @@ jobs:
             native-matched.csv
             native-matched-summary.csv
             native-matched-driver.txt
+            canonical-bucket.csv
+            canonical-bucket-summary.csv
+            canonical-bucket-driver.txt
           if-no-files-found: warn
 
   linux-cpu-research:
@@ -505,6 +536,7 @@ jobs:
           g++ -std=c++20 -O2 -I tests/TextureRangeSupport -I src tests/TransferRangeParetoTests.cpp -o _Build/linux-cpu/transfer_range_pareto_tests
           g++ -std=c++20 -O2 -I src tests/ImageRangeIndexTests.cpp -o _Build/linux-cpu/image_range_index_tests
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-error=class-memaccess -I tests/TextureRangeSupport -I src tests/NativeMatchedRangeBench.cpp -o _Build/linux-cpu/native_matched_range_bench
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-error=class-memaccess -I tests/TextureRangeSupport -I src tests/CanonicalBucketWalkBench.cpp -o _Build/linux-cpu/canonical_bucket_walk_bench
           g++ -std=c++20 -O2 tests/TextureGcPolicyOracleTests.cpp -o _Build/linux-cpu/texture_gc_policy_oracle_tests
       - name: Execute Linux CPU differentials and source tripwires
         shell: bash
@@ -536,6 +568,10 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_native_matched_bench_driver.py' -v
           python3 tests/run_native_matched_bench.py _Build/linux-cpu/native_matched_range_bench native-matched-linux.csv native-matched-summary-linux.csv > native-matched-driver-linux.txt
           grep -F 'S4_B4B_MATCHED_PASS' native-matched-driver-linux.txt
+          python3 -m unittest discover -s tests -p 'test_canonical_bucket_walk_driver.py' -v
+          python3 -m unittest discover -s tests -p 'test_canonical_bucket_walk_source_contract.py' -v
+          python3 tests/run_canonical_bucket_walk.py _Build/linux-cpu/canonical_bucket_walk_bench canonical-bucket-linux.csv canonical-bucket-summary-linux.csv > canonical-bucket-driver-linux.txt
+          grep -F 'S4_B5A_CANONICAL_PASS' canonical-bucket-driver-linux.txt
           _Build/linux-cpu/texture_gc_policy_oracle_tests > texture-gc-policy-linux.txt
           python3 -m unittest discover -s tests -p 'test_descriptor_heap_source_contract.py' -v
           python3 -m unittest discover -s tests -p 'test_buffer_transfer_source_contract.py' -v
@@ -556,6 +592,9 @@ jobs:
             native-matched-linux.csv
             native-matched-summary-linux.csv
             native-matched-driver-linux.txt
+            canonical-bucket-linux.csv
+            canonical-bucket-summary-linux.csv
+            canonical-bucket-driver-linux.txt
             transfer-range-pareto-linux.csv
             transfer-scatter-safe-linux.csv
             image-range-differential-linux.txt
