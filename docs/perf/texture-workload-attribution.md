@@ -79,6 +79,9 @@ driver validation or descriptor-cache hits upstream of this call.
   `MemoryTracker::ForEachUploadRange` and passed to `UploadCopies`;
   `buffer_upload_batches` counts the corresponding nonempty staging batches.
   Neither metric is a count of unique dirty pages or actual GPU submissions.
+  `RegionManager::ForEachModifiedRange` currently returns 4-KiB tracker-page
+  aligned spans: `buffer_upload_tracker_page_instances = staged_bytes / 4096`.
+  This counts processed page *instances*, not unique pages across the trace.
 - `buffer_upload_staged_bytes` measures requested payload staging bytes.
 - `buffer_readback_regions` counts readback copy regions,
   `buffer_readback_payload_bytes` sums useful copy sizes, and
