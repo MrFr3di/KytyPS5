@@ -1,4 +1,4 @@
-name: KYTY-INDEX-001 Windows range-index research
+name: KYTY-INDEX-001 Windows + parallel Linux CPU research
 
 on:
   push:
@@ -57,6 +57,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/NativeLazyRangeSidecarTests.cpp /Fe:native_lazy_range_sidecar_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build and run G3-D0 descriptor heap CPU capacity
+        shell: pwsh
+        run: |
+          clang-cl /nologo /std:c++20 /O2 /EHsc tests/DescriptorHeapCapacityOracleTests.cpp /Fe:descriptor_heap_capacity_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\descriptor_heap_capacity_fast.exe > descriptor-heap-capacity-fast.csv
+          if ($LASTEXITCODE -ne 0) { Get-Content descriptor-heap-capacity-fast.csv; exit $LASTEXITCODE }
+          if (-not (Select-String -Path descriptor-heap-capacity-fast.csv -SimpleMatch 'G3_MODEL_ONLY,PASS')) { throw 'G3 output missing' }
       - name: Compile G1-B1 real RangeSet transfer planner
         shell: pwsh
         run: |
@@ -139,6 +147,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m unittest discover -s tests -p "test_buffer_transfer_source_contract.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_descriptor_heap_source_contract.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload fast CPU benchmark evidence
         uses: actions/upload-artifact@v4
@@ -155,6 +165,7 @@ jobs:
             source-anchored-texture-lifetime-fast.txt
             transfer-range-pareto-fast.csv
             transfer-scatter-safe-fast.csv
+            descriptor-heap-capacity-fast.csv
           if-no-files-found: warn
 
   windows-range-index:
@@ -227,12 +238,12 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests descriptor_heap_capacity_oracle_tests --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|native_lazy_range_sidecar)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|native_lazy_range_sidecar)$"
 
       - name: Export G2-B1 fault coverage
         shell: cmd
@@ -264,6 +275,16 @@ jobs:
           _Build\windows-range\transfer_range_pareto_tests.exe --scatter > transfer-scatter-safe.csv
           if errorlevel 1 exit /b 1
           findstr /c:"SCATTER_PASS" transfer-scatter-safe.csv
+          if errorlevel 1 exit /b 1
+
+      - name: G3-D0 descriptor source contract and model evidence
+        shell: cmd
+        run: |
+          python -m unittest discover -s tests -p test_descriptor_heap_source_contract.py -v
+          if errorlevel 1 exit /b 1
+          _Build\windows-range\descriptor_heap_capacity_oracle_tests.exe > descriptor-heap-capacity.csv
+          if errorlevel 1 exit /b 1
+          findstr /c:"G3_MODEL_ONLY,PASS" descriptor-heap-capacity.csv
           if errorlevel 1 exit /b 1
 
       - name: A/B/C deterministic CPU replay
@@ -330,4 +351,52 @@ jobs:
             source-anchored-texture-lifetime.txt
             transfer-range-pareto.csv
             transfer-scatter-safe.csv
+            descriptor-heap-capacity.csv
+          if-no-files-found: warn
+
+  linux-cpu-research:
+    name: Linux x64 - standalone CPU research (no Vulkan)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Checkout feature branch only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build portable standalone CPU tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _Build/linux-cpu
+          { echo "SHA=${{ github.sha }}"; uname -a; g++ --version | head -n 1; python3 --version; } > linux-runner-details.txt
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/DescriptorHeapCapacityOracleTests.cpp -o _Build/linux-cpu/descriptor_heap_capacity_oracle_tests
+          g++ -std=c++20 -O2 -I tests/TextureRangeSupport -I src tests/TransferRangeParetoTests.cpp -o _Build/linux-cpu/transfer_range_pareto_tests
+          g++ -std=c++20 -O2 -I src tests/ImageRangeIndexTests.cpp -o _Build/linux-cpu/image_range_index_tests
+          g++ -std=c++20 -O2 tests/TextureGcPolicyOracleTests.cpp -o _Build/linux-cpu/texture_gc_policy_oracle_tests
+      - name: Execute Linux CPU differentials and source tripwires
+        shell: bash
+        run: |
+          set -euo pipefail
+          _Build/linux-cpu/descriptor_heap_capacity_oracle_tests > descriptor-heap-capacity-linux.csv
+          grep -F 'G3_MODEL_ONLY,PASS' descriptor-heap-capacity-linux.csv
+          _Build/linux-cpu/transfer_range_pareto_tests > transfer-range-pareto-linux.csv
+          grep -F 'decision,MODEL_ONLY' transfer-range-pareto-linux.csv
+          _Build/linux-cpu/transfer_range_pareto_tests --scatter > transfer-scatter-safe-linux.csv
+          grep -F 'SCATTER_MODEL_ONLY,SCATTER_PASS' transfer-scatter-safe-linux.csv
+          _Build/linux-cpu/image_range_index_tests > image-range-differential-linux.txt
+          _Build/linux-cpu/texture_gc_policy_oracle_tests > texture-gc-policy-linux.txt
+          python3 -m unittest discover -s tests -p 'test_descriptor_heap_source_contract.py' -v
+          python3 -m unittest discover -s tests -p 'test_buffer_transfer_source_contract.py' -v
+      - name: Upload independent Linux CPU evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: texture-index-linux-cpu-${{ github.sha }}
+          path: |
+            linux-runner-details.txt
+            descriptor-heap-capacity-linux.csv
+            transfer-range-pareto-linux.csv
+            transfer-scatter-safe-linux.csv
+            image-range-differential-linux.txt
+            texture-gc-policy-linux.txt
           if-no-files-found: warn

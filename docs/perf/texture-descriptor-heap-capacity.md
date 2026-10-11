@@ -1,0 +1,9 @@
+# KYTY-INDEX-001 G3-D0 — source-anchored DescriptorHeap capacity research
+
+Research issue: https://github.com/definitely-stable/Mathlab/issues/289. Code only in `MrFr3di/KytyPS5:perf/texture-range-index`. No production source changed.
+
+Actual `DescriptorHeap::Commit` uses per-layout batches of 32, descriptor pools max 1024 sets, per-type limits 8192 storage-buffer, 8192 sampled-image, 1024 storage-image and 1024 sampler descriptors. On out-of-pool/fragmentation `Allocate` halves the request. Pool rollover is GPU-tick-gated by `CurrentTick/IsFree` with `m_sets.clear()`. CommitBindings differs for push descriptors versus update/bind descriptor heap path.
+
+`DescriptorHeapCapacityOracleTests.cpp` models bounded capacities, layout mix, per-batch set uniqueness, deferred-pool generations and pool ledger over 1536 commits x 4 synthetic workload distributions x batch sizes 1,8,16,32. Negative checks reject capacity overflow and early-reset conditions. Source-contract Python guards source constants, halving, layout invalidation, pending pool safety and both bindings paths; 7 intentionally broken source variants must be rejected. Real `DescriptorHeap` C++ and Vulkan are NOT executed. No GPU timings, driver fragmentation, FPS, workload traces or real memory usage are measured. These data cannot authorize a production batch-size change.
+
+Parallel GitHub-hosted Ubuntu 24.04 GCC C++20 CPU lane supplements (never replaces) both existing Windows 2022 clang-cl jobs; Linux runs only independent CPU experiments and source checks, produces separate SHA-tied CSV artifacts, and does not build emulator. G3-D0 is accepted only on exact same HEAD with all three jobs SUCCESS, full Windows emulator build/CLI smoke preserved, `G3_MODEL_ONLY,PASS` present. All production optimization remains NO-GO pending representative workload and driver evidence.

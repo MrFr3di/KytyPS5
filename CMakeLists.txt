@@ -655,6 +655,11 @@ add_executable(source_anchored_texture_lifetime_tests EXCLUDE_FROM_ALL
 target_link_libraries(source_anchored_texture_lifetime_tests common fmt::fmt)
 target_include_directories(source_anchored_texture_lifetime_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# G3-D0: standalone no-Vulkan descriptor heap capacity and lifetime model.
+add_executable(descriptor_heap_capacity_oracle_tests EXCLUDE_FROM_ALL
+    "${KYTY_TESTS_DIR}/DescriptorHeapCapacityOracleTests.cpp"
+)
+
 # G1-B1: production RangeSet readback-plan/packing trade-off oracle.
 add_executable(transfer_range_pareto_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/TransferRangeParetoTests.cpp"
@@ -729,6 +734,7 @@ if(BUILD_TESTING)
 	add_test(NAME source_anchored_texture_lifetime COMMAND $<TARGET_FILE:source_anchored_texture_lifetime_tests>)
 	add_test(NAME transfer_range_pareto COMMAND $<TARGET_FILE:transfer_range_pareto_tests>)
 	add_test(NAME transfer_range_scatter COMMAND $<TARGET_FILE:transfer_range_pareto_tests> --scatter)
+	add_test(NAME descriptor_heap_capacity_oracle COMMAND $<TARGET_FILE:descriptor_heap_capacity_oracle_tests>)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
