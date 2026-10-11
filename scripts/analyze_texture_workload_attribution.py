@@ -91,7 +91,7 @@ def parse(path: Path) -> dict[str, dict[str, dict[str, int]]]:
             gauges["image_slots_peak_observed"] < gauges["image_slots_live"] or
             gauges["image_views_peak_observed"] < gauges["image_views_live"]):
         raise ValueError("invalid resource occupancy snapshot")
-    if (events["image_gc_below_trigger"]["count"] > events["image_gc_checks"]["count"]:
+    if events["image_gc_below_trigger"]["count"] > events["image_gc_checks"]["count"]:
         raise ValueError("GC early returns exceed checks")
     if events["image_gc_root_retire_requests"]["count"] > events["image_gc_root_candidates"]["count"]:
         raise ValueError("more root retire requests than inspected GC candidates")
