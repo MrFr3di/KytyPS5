@@ -33,7 +33,7 @@ uint64_t Ns(Clock::time_point start){
 }
 struct Image {
   uint64_t begin=0,bytes=0,effective_begin=0,effective_bytes=0;
-  uint32_t query_epoch=0;
+  mutable uint32_t query_epoch=0;
 };
 struct Spec{uint64_t begin,bytes;};
 struct Query{uint64_t begin,bytes;bool rounded;};
