@@ -504,7 +504,7 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapPoolBudgetTests.cpp -o _Build/linux-cpu/descriptor_heap_pool_budget_tests
           g++ -std=c++20 -O2 -I tests/TextureRangeSupport -I src tests/TransferRangeParetoTests.cpp -o _Build/linux-cpu/transfer_range_pareto_tests
           g++ -std=c++20 -O2 -I src tests/ImageRangeIndexTests.cpp -o _Build/linux-cpu/image_range_index_tests
-          g++ -std=c++20 -O2 -Wall -Wextra -Werror -I tests/TextureRangeSupport -I src tests/NativeMatchedRangeBench.cpp -o _Build/linux-cpu/native_matched_range_bench
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-error=class-memaccess -I tests/TextureRangeSupport -I src tests/NativeMatchedRangeBench.cpp -o _Build/linux-cpu/native_matched_range_bench
           g++ -std=c++20 -O2 tests/TextureGcPolicyOracleTests.cpp -o _Build/linux-cpu/texture_gc_policy_oracle_tests
       - name: Execute Linux CPU differentials and source tripwires
         shell: bash
