@@ -51,6 +51,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc tests/TextureGcPolicyOracleTests.cpp /Fe:texture_gc_policy_oracle_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc tests/TextureGcLifecycleFaultTests.cpp /Fe:texture_gc_lifecycle_fault_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/NativeLazyRangeSidecarTests.cpp /Fe:native_lazy_range_sidecar_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run differential oracle
@@ -68,6 +70,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\\texture_gc_policy_oracle_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\\texture_gc_lifecycle_fault_fast.exe > texture-gc-lifecycle-faults-fast.csv
+          if ($LASTEXITCODE -ne 0) { Get-Content texture-gc-lifecycle-faults-fast.csv; exit $LASTEXITCODE }
+          if (-not (Select-String -Path texture-gc-lifecycle-faults-fast.csv -SimpleMatch 'summary,TextureGcLifecycleFaultTests_PASS,1')) { throw "G2-B1 summary missing" }
+          Get-Content texture-gc-lifecycle-faults-fast.csv | Select-Object -Last 6
           .\\native_lazy_range_sidecar_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run pure CPU A/B/C benchmark
@@ -119,6 +125,7 @@ jobs:
             range-allocation-fast.csv
             range-cold-mix-fast.csv
             range-heap-ledger-fast.csv
+            texture-gc-lifecycle-faults-fast.csv
           if-no-files-found: warn
 
   windows-range-index:
@@ -191,12 +198,20 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests native_lazy_range_sidecar_tests --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests native_lazy_range_sidecar_tests --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|native_lazy_range_sidecar)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|native_lazy_range_sidecar)$"
+
+      - name: Export G2-B1 fault coverage
+        shell: cmd
+        run: |
+          _Build\windows-range\texture_gc_lifecycle_fault_tests.exe > texture-gc-lifecycle-faults.csv
+          if errorlevel 1 exit /b 1
+          findstr /c:"summary,TextureGcLifecycleFaultTests_PASS,1" texture-gc-lifecycle-faults.csv
+          if errorlevel 1 exit /b 1
 
       - name: A/B/C deterministic CPU replay
         shell: cmd
@@ -258,4 +273,5 @@ jobs:
             range-allocation.csv
             range-cold-mix.csv
             range-heap-ledger.csv
+            texture-gc-lifecycle-faults.csv
           if-no-files-found: warn

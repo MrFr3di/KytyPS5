@@ -642,6 +642,11 @@ add_executable(texture_gc_policy_oracle_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/TextureGcPolicyOracleTests.cpp"
 )
 
+# G2-B1: standalone lifetime/fault-injection state machine, CI-only.
+add_executable(texture_gc_lifecycle_fault_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/TextureGcLifecycleFaultTests.cpp"
+)
+
 # S4-B4: separate native SlotId-aware sidecar with canonical page-table oracle.
 add_executable(native_lazy_range_sidecar_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/NativeLazyRangeSidecarTests.cpp"
@@ -705,6 +710,7 @@ if(BUILD_TESTING)
 	add_test(NAME texture_range_telemetry COMMAND $<TARGET_FILE:texture_range_telemetry_tests>)
 	add_test(NAME texture_workload_attribution COMMAND $<TARGET_FILE:texture_workload_attribution_tests>)
 	add_test(NAME texture_gc_policy_oracle COMMAND $<TARGET_FILE:texture_gc_policy_oracle_tests>)
+	add_test(NAME texture_gc_lifecycle_fault COMMAND $<TARGET_FILE:texture_gc_lifecycle_fault_tests>)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
@@ -788,6 +794,7 @@ if(BUILD_TESTING)
 		texture_range_telemetry_tests
 		texture_workload_attribution_tests
 		texture_gc_policy_oracle_tests
+		texture_gc_lifecycle_fault_tests
 		native_lazy_range_sidecar_tests
 		memory_tracker_tests
 		page_manager_tests
