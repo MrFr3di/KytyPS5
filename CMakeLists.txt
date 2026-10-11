@@ -686,6 +686,13 @@ add_executable(transfer_range_pareto_tests EXCLUDE_FROM_ALL
 target_link_libraries(transfer_range_pareto_tests common fmt::fmt)
 target_include_directories(transfer_range_pareto_tests PRIVATE ${KYTY_SOURCE_DIR})
 
+# S4-B4b: native SlotId matched canonical vs canonical+lazy benchmark.
+add_executable(native_matched_range_bench EXCLUDE_FROM_ALL
+    "${KYTY_TESTS_DIR}/NativeMatchedRangeBench.cpp"
+)
+target_link_libraries(native_matched_range_bench common fmt::fmt)
+target_include_directories(native_matched_range_bench PRIVATE ${KYTY_SOURCE_DIR})
+
 # S4-B4: separate native SlotId-aware sidecar with canonical page-table oracle.
 add_executable(native_lazy_range_sidecar_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/NativeLazyRangeSidecarTests.cpp"
@@ -759,6 +766,7 @@ if(BUILD_TESTING)
 	add_test(NAME descriptor_heap_type_budget COMMAND $<TARGET_FILE:descriptor_heap_type_budget_tests>)
 	add_test(NAME descriptor_heap_pool_budget COMMAND $<TARGET_FILE:descriptor_heap_pool_budget_tests>)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
+	add_test(NAME native_matched_range COMMAND $<TARGET_FILE:native_matched_range_bench> 0 0 0)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
 	add_test(NAME archive_file COMMAND $<TARGET_FILE:archive_file_tests>)

@@ -57,6 +57,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/NativeLazyRangeSidecarTests.cpp /Fe:native_lazy_range_sidecar_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/NativeMatchedRangeBench.cpp /Fe:native_matched_range_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and run G3-D0 descriptor heap CPU capacity
         shell: pwsh
         run: |
@@ -146,6 +148,16 @@ jobs:
           Get-Content source-anchored-texture-lifetime-fast.txt
           .\\native_lazy_range_sidecar_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: S4-B4b matched native SlotId A/B and source-contract
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_native_matched_source_contract.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_native_matched_bench_driver.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/run_native_matched_bench.py ./native_matched_range_fast.exe native-matched-fast.csv native-matched-summary-fast.csv > native-matched-driver-fast.txt
+          if ($LASTEXITCODE -ne 0) { Get-Content native-matched-driver-fast.txt; exit $LASTEXITCODE }
+          if (-not (Select-String -Path native-matched-driver-fast.txt -SimpleMatch 'S4_B4B_MATCHED_PASS')) { throw 'S4-B4b matched native result missing' }
       - name: Run pure CPU A/B/C benchmark
         shell: pwsh
         run: |
@@ -212,6 +224,9 @@ jobs:
             descriptor-heap-pool-budget-fast.txt
             descriptor-heap-pool-fixture-fast.csv
             descriptor-heap-pool-analysis-fast.csv
+            native-matched-fast.csv
+            native-matched-summary-fast.csv
+            native-matched-driver-fast.txt
           if-no-files-found: warn
 
   windows-range-index:
@@ -285,12 +300,12 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests descriptor_heap_type_budget_tests descriptor_heap_pool_budget_tests --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests native_matched_range_bench descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests descriptor_heap_type_budget_tests descriptor_heap_pool_budget_tests --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|descriptor_heap_pool_budget|native_lazy_range_sidecar)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|descriptor_heap_pool_budget|native_lazy_range_sidecar|native_matched_range)$"
 
       - name: Export G2-B1 fault coverage
         shell: cmd
@@ -376,6 +391,18 @@ jobs:
           findstr /c:"CONSISTENT_DIAGNOSTIC" descriptor-heap-pool-analysis.csv
           if errorlevel 1 exit /b 1
 
+      - name: S4-B4b matched native SlotId A/B benchmark
+        shell: cmd
+        run: |
+          python -m unittest discover -s tests -p test_native_matched_source_contract.py -v
+          if errorlevel 1 exit /b 1
+          python -m unittest discover -s tests -p test_native_matched_bench_driver.py -v
+          if errorlevel 1 exit /b 1
+          python tests\run_native_matched_bench.py _Build\windows-range\native_matched_range_bench.exe native-matched.csv native-matched-summary.csv > native-matched-driver.txt
+          if errorlevel 1 exit /b 1
+          findstr /c:"S4_B4B_MATCHED_PASS" native-matched-driver.txt
+          if errorlevel 1 exit /b 1
+
       - name: A/B/C deterministic CPU replay
         shell: cmd
         run: |
@@ -451,6 +478,9 @@ jobs:
             descriptor-heap-pool-budget.txt
             descriptor-heap-pool-fixture.csv
             descriptor-heap-pool-analysis.csv
+            native-matched.csv
+            native-matched-summary.csv
+            native-matched-driver.txt
           if-no-files-found: warn
 
   linux-cpu-research:
@@ -474,6 +504,7 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapPoolBudgetTests.cpp -o _Build/linux-cpu/descriptor_heap_pool_budget_tests
           g++ -std=c++20 -O2 -I tests/TextureRangeSupport -I src tests/TransferRangeParetoTests.cpp -o _Build/linux-cpu/transfer_range_pareto_tests
           g++ -std=c++20 -O2 -I src tests/ImageRangeIndexTests.cpp -o _Build/linux-cpu/image_range_index_tests
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -I tests/TextureRangeSupport -I src tests/NativeMatchedRangeBench.cpp -o _Build/linux-cpu/native_matched_range_bench
           g++ -std=c++20 -O2 tests/TextureGcPolicyOracleTests.cpp -o _Build/linux-cpu/texture_gc_policy_oracle_tests
       - name: Execute Linux CPU differentials and source tripwires
         shell: bash
@@ -501,6 +532,10 @@ jobs:
           _Build/linux-cpu/transfer_range_pareto_tests --scatter > transfer-scatter-safe-linux.csv
           grep -F 'SCATTER_MODEL_ONLY,SCATTER_PASS' transfer-scatter-safe-linux.csv
           _Build/linux-cpu/image_range_index_tests > image-range-differential-linux.txt
+          python3 -m unittest discover -s tests -p 'test_native_matched_source_contract.py' -v
+          python3 -m unittest discover -s tests -p 'test_native_matched_bench_driver.py' -v
+          python3 tests/run_native_matched_bench.py _Build/linux-cpu/native_matched_range_bench native-matched-linux.csv native-matched-summary-linux.csv > native-matched-driver-linux.txt
+          grep -F 'S4_B4B_MATCHED_PASS' native-matched-driver-linux.txt
           _Build/linux-cpu/texture_gc_policy_oracle_tests > texture-gc-policy-linux.txt
           python3 -m unittest discover -s tests -p 'test_descriptor_heap_source_contract.py' -v
           python3 -m unittest discover -s tests -p 'test_buffer_transfer_source_contract.py' -v
@@ -518,6 +553,9 @@ jobs:
             descriptor-heap-pool-budget-linux.txt
             descriptor-heap-pool-fixture-linux.csv
             descriptor-heap-pool-analysis-linux.csv
+            native-matched-linux.csv
+            native-matched-summary-linux.csv
+            native-matched-driver-linux.txt
             transfer-range-pareto-linux.csv
             transfer-scatter-safe-linux.csv
             image-range-differential-linux.txt
