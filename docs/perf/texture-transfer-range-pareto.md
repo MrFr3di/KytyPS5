@@ -19,3 +19,13 @@ The emitted `transfer-range-pareto[-fast].csv` contains baseline and each counte
 ## Acceptance and restrictions
 
 Both feature-branch `windows-2022` jobs must run this C++20 test, the Python source tripwire and existing tests. The full job must retain CMake/CTest, entire `kyty_emulator` build and headless CLI smoke; CSV artifacts are attached to exact HEAD. G1-B1 can be ACCEPT as a source-anchored transfer-plan experiment only when both jobs are SUCCESS. Production gap merging stays **NO-GO**: a separate shader/buffer ownership proof, real GPU workload evidence and barrier analysis would be required. No production Vulkan/TextureCache/BufferCache/scheduler, GC or descriptor behavior changes.
+
+## G1-B2 — verified dirty-only guest scatter, CPU feasibility
+
+Actual BufferCache::DownloadBufferMemory uses the SAME copies list for native.copyBuffer and WriteBacking. Therefore a direct GPU region merge also expands guest writes to clean gaps and is a correctness HARD NO-GO.
+
+The existing C++20 transfer_range_pareto_tests accepts --scatter. It derives GPU staging copies from the real RangeSet, then maps a separate UNMERGED list of dirty-only guest writes into those copies using staging_base + dirty_begin - copy_begin. Each deterministic CPU synthetic transfer fills staging from a synthetic GPU buffer, captures staging ownership and scatter list by value in a deferred-shaped closure, and compares all 512 guest bytes with an independently calculated dirty-only reference. Non-dirty guest memory, including out-of-window canaries, must never change. This is not real Vulkan GPU execution, wait fence, guest page watcher or cache invalidation.
+
+Falsification: six named mutant controls reject naive merged writeback, wrong staging translation, early publish before synthetic transfer completion, dropped fragment, duplicate fragment and out-of-window guest write. The source Python tests now additionally guard actual WriteBacking staging offset, async priority handoff, synchronous priority wait and captured temporary buffer lifetime.
+
+Two additional CSV artifacts, transfer-scatter-safe-fast.csv and transfer-scatter-safe.csv, describe 768 reproducible trials over five maximum-gap thresholds. Metrics distinguish modeled GPU copy ranges/bytes from untouched dirty-only guest publish regions/bytes, count additional scatter-entry metadata and verified clean-byte canaries. They are NOT performance, GPU time, FPS or VRAM measurements. No production code is changed; G1-B2 CPU scatter-model ACCEPT needs exact-head Windows fast plus full CMake/CTest, emulator build and CLI smoke.

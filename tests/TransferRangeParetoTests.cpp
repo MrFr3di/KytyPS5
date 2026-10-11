@@ -1,10 +1,12 @@
-// KYTY-INDEX-001 G1-B1: Windows CI-only, source-anchored transfer cost model.
+// KYTY-INDEX-001 G1-B1/B2: Windows CI-only, source-anchored transfer cost model.
 // Uses the production RangeSet implementation; BufferCache / Vulkan remain untouched.
 // GPU copy volume here is modeled vk::BufferCopy payload, never measured GPU traffic.
 #include "graphics/host_gpu/rangeSet.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
+#include <utility>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -124,6 +126,208 @@ void Csv(const char* label, uint64_t threshold, const Totals& t) {
     static_cast<unsigned long long>(t.regions),
     static_cast<unsigned long long>(t.extra));
 }
+
+// G1-B2: GPU copy ranges and exact dirty-only guest writes are DIFFERENT.
+struct Write { uint64_t begin, end, stage; };
+std::vector<Write> MapDirtyScatter(const std::vector<Span>& dirty, const Plan& gpu) {
+  std::vector<Write> writes;
+  size_t i = 0;
+  for (const auto& s: dirty) {
+    while (i < gpu.copies.size() && gpu.copies[i].end <= s.begin) ++i;
+    Check(i < gpu.copies.size(), "scatter has containing copy");
+    const auto& c = gpu.copies[i];
+    Check(c.begin <= s.begin && s.end <= c.end, "scatter inside GPU copy");
+    const uint64_t offset = c.staging + s.begin - c.begin;
+    Check(offset <= gpu.packed && s.end - s.begin <= gpu.packed - offset,
+          "scatter staging valid");
+    writes.push_back({s.begin, s.end, offset});
+  }
+  return writes;
+}
+
+// Synthetic copy->staging->deferred publish, with an independent bytewise oracle.
+// This is NOT a Vulkan timeline/synchronization or guest-memory implementation.
+bool SimulatedPublish(const Plan& gpu, const std::vector<Write>& writes,
+                      const std::array<bool, Length>& dirty, uint64_t from,
+                      uint64_t until, uint32_t salt, bool gpu_complete = true) {
+  if (from < Base || until > Base + Length || from >= until) return false;
+  std::array<uint8_t, Length> gpu_memory {}, original {}, expected {};
+  for (size_t i = 0; i < Length; ++i) {
+    gpu_memory[i] = static_cast<uint8_t>((i * 37u + salt * 13u + 7u) & 255u);
+    original[i] = static_cast<uint8_t>(gpu_memory[i] ^ 255u);
+    expected[i] = original[i];
+  }
+  for (uint64_t pos = from; pos < until; ++pos) {
+    const auto i = static_cast<size_t>(pos - Base);
+    if (dirty[i]) expected[i] = gpu_memory[i];
+  }
+  std::vector<uint8_t> staging(static_cast<size_t>(gpu.packed), 0xC3u);
+  if (gpu_complete) {
+    for (const auto& c: gpu.copies) {
+      if (c.begin < from || c.end > until || c.end <= c.begin ||
+          c.staging > gpu.packed || c.end - c.begin > gpu.packed - c.staging)
+        return false;
+      std::memcpy(staging.data() + static_cast<size_t>(c.staging),
+                  gpu_memory.data() + static_cast<size_t>(c.begin - Base),
+                  static_cast<size_t>(c.end - c.begin));
+    }
+  }
+  // Capture the temporary staging owner, copy plan and scatter list by value:
+  // the original local staging allocation is moved into a deferred-shaped closure.
+  auto callback = [copy_plan = gpu, owned = std::move(staging), selected = writes,
+                   guest = original, expected, dirty, from, until]() mutable {
+    std::array<uint8_t, Length> touched {};
+    for (const auto& w: selected) {
+      if (w.begin < from || w.end > until || w.begin >= w.end ||
+          w.stage > copy_plan.packed || w.end - w.begin > copy_plan.packed - w.stage)
+        return false;
+      bool mapping = false;
+      for (const auto& c: copy_plan.copies) {
+        if (c.begin <= w.begin && w.end <= c.end &&
+            w.stage == c.staging + (w.begin - c.begin)) {
+          mapping = true;
+          break;
+        }
+      }
+      if (!mapping) return false;
+      for (uint64_t pos = w.begin; pos < w.end; ++pos) {
+        const auto i = static_cast<size_t>(pos - Base);
+        if (!dirty[i] || touched[i] != 0) return false;
+        ++touched[i];
+      }
+      std::memcpy(guest.data() + static_cast<size_t>(w.begin - Base),
+                  owned.data() + static_cast<size_t>(w.stage),
+                  static_cast<size_t>(w.end - w.begin));
+    }
+    for (uint64_t pos = from; pos < until; ++pos) {
+      const auto i = static_cast<size_t>(pos - Base);
+      if (touched[i] != static_cast<uint8_t>(dirty[i])) return false;
+    }
+    return guest == expected;
+  };
+  return callback();
+}
+
+struct ScatterTotals {
+  uint64_t trials = 0, dirty_bytes = 0, gpu_regions = 0, gpu_bytes = 0;
+  uint64_t staging_bytes = 0, guest_regions = 0, metadata_bytes = 0, clean_canaries = 0;
+  void Add(const Plan& p, const std::vector<Write>& writes, uint64_t clean) {
+    ++trials;
+    dirty_bytes += p.payload;
+    gpu_regions += p.copies.size();
+    gpu_bytes += p.copied;
+    staging_bytes += p.packed;
+    guest_regions += writes.size();
+    metadata_bytes += sizeof(Write) * writes.size();
+    clean_canaries += clean;
+  }
+};
+
+void ScatterNegatives() {
+  RangeSet r;
+  r.Add(Base + 8, 8);
+  r.Add(Base + 24, 8);
+  const auto spans = RealRanges(r, Base, Base + 48);
+  const auto legacy = Build(spans, 0, 0);
+  const auto merged = Build(spans, 16, OverfetchBudget);
+  auto writes = MapDirtyScatter(spans, merged);
+  std::array<bool, Length> dirty {};
+  for (size_t i = 8; i < 16; ++i) dirty[i] = true;
+  for (size_t i = 24; i < 32; ++i) dirty[i] = true;
+  Check(SimulatedPublish(legacy, MapDirtyScatter(spans, legacy),
+                          dirty, Base, Base + 48, 1), "baseline guest equality");
+  Check(SimulatedPublish(merged, writes, dirty, Base, Base + 48, 1),
+        "split scatter preserves clean guest canaries");
+  std::vector<Write> naive;
+  for (const auto& c: merged.copies) naive.push_back({c.begin, c.end, c.staging});
+  Check(!SimulatedPublish(merged, naive, dirty, Base, Base + 48, 1),
+        "reject merged GPU extents as guest writeback");
+  auto shifted = writes;
+  ++shifted[1].stage;
+  Check(!SimulatedPublish(merged, shifted, dirty, Base, Base + 48, 1),
+        "reject incorrect GPU-to-scatter displacement");
+  Check(!SimulatedPublish(merged, writes, dirty, Base, Base + 48, 1, false),
+        "reject early publish with incomplete staging");
+  auto missing = writes;
+  missing.pop_back();
+  Check(!SimulatedPublish(merged, missing, dirty, Base, Base + 48, 1),
+        "reject missing dirty fragment");
+  auto duplicate = writes;
+  duplicate.push_back(writes.front());
+  Check(!SimulatedPublish(merged, duplicate, dirty, Base, Base + 48, 1),
+        "reject duplicate dirty fragment");
+  auto outside = writes;
+  outside.front().begin = Base - 1;
+  Check(!SimulatedPublish(merged, outside, dirty, Base, Base + 48, 1),
+        "reject out-of-bounds guest write");
+}
+
+int ScatterReplay() {
+  ScatterNegatives();
+  constexpr uint64_t Trials = 768;
+  std::array<ScatterTotals, Gaps.size()> totals {};
+  uint32_t state_scatter = 0xB204BA51u;
+  auto draw = [&] {
+    state_scatter ^= state_scatter << 13;
+    state_scatter ^= state_scatter >> 17;
+    state_scatter ^= state_scatter << 5;
+    return state_scatter;
+  };
+  for (uint64_t trial = 0; trial < Trials; ++trial) {
+    RangeSet r;
+    std::array<bool, Length> truth {};
+    const uint32_t count = 8 + draw() % 24;
+    for (uint32_t n = 0; n < count; ++n) {
+      const uint64_t first = draw() % Length;
+      const uint64_t size = 1 + draw() % std::min<uint64_t>(32, Length - first);
+      const bool add = (draw() % 5) != 0;
+      if (add) r.Add(Base + first, size);
+      else r.Subtract(Base + first, size);
+      for (uint64_t i = first; i < first + size; ++i)
+        truth[static_cast<size_t>(i)] = add;
+    }
+    const uint64_t from = draw() % Length;
+    const uint64_t until = from + 1 + draw() % (Length - from);
+    const auto dirty = RealRanges(r, Base + from, Base + until);
+    uint64_t clean_canaries = 0;
+    for (uint64_t i = from; i < until; ++i)
+      if (!truth[static_cast<size_t>(i)]) ++clean_canaries;
+    for (size_t i = 0; i < Gaps.size(); ++i) {
+      const auto plan = Build(dirty, Gaps[i], OverfetchBudget);
+      Check(Valid(plan, truth, Base + from, Base + until, OverfetchBudget, false),
+            "range coverage before guest scatter");
+      const auto writes = MapDirtyScatter(dirty, plan);
+      Check(SimulatedPublish(plan, writes, truth, Base + from, Base + until,
+                             static_cast<uint32_t>(trial)),
+            "independent dirty-only guest differential");
+      totals[i].Add(plan, writes, clean_canaries);
+    }
+  }
+  std::puts("scenario,max_gap,trials,dirty_bytes,gpu_regions,modeled_gpu_copy_bytes,"
+            "staging_bytes,guest_regions,guest_write_bytes,scatter_metadata_bytes,"
+            "clean_canaries");
+  for (size_t i = 0; i < Gaps.size(); ++i) {
+    const auto& t = totals[i];
+    Check(t.dirty_bytes <= t.gpu_bytes, "copied bytes cover dirty bytes");
+    std::printf("dirty_only_scatter,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+      static_cast<unsigned long long>(Gaps[i]),
+      static_cast<unsigned long long>(t.trials),
+      static_cast<unsigned long long>(t.dirty_bytes),
+      static_cast<unsigned long long>(t.gpu_regions),
+      static_cast<unsigned long long>(t.gpu_bytes),
+      static_cast<unsigned long long>(t.staging_bytes),
+      static_cast<unsigned long long>(t.guest_regions),
+      static_cast<unsigned long long>(t.dirty_bytes),
+      static_cast<unsigned long long>(t.metadata_bytes),
+      static_cast<unsigned long long>(t.clean_canaries));
+  }
+  std::printf("summary,checks,%llu,seed,0xB204BA51,trials,%llu,"
+              "negative_mutants,6,decision,SCATTER_MODEL_ONLY,SCATTER_PASS\n",
+              static_cast<unsigned long long>(checks),
+              static_cast<unsigned long long>(Trials));
+  return 0;
+}
+
 void Examples() {
   RangeSet real;
   real.Add(Base, 8);
@@ -210,7 +414,8 @@ void Replay() {
               static_cast<unsigned long long>(Trials));
 }
 } // namespace
-int main() {
+int main(int argc, char** argv) {
+  if (argc == 2 && std::strcmp(argv[1], "--scatter") == 0) return ScatterReplay();
   Examples();
   Replay();
   return 0;

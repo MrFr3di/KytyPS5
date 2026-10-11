@@ -1,4 +1,4 @@
-"""G1-B1 source-change guard, NOT a C++ semantic / GPU synchronization proof."""
+"""G1-B1/B2 source tripwire, not a Vulkan concurrency proof."""
 import unittest
 from pathlib import Path
 
@@ -18,6 +18,16 @@ def production_readback_contract(source: str) -> bool:
         "BufferReadbackRegions, copies.size()",
         "m_download_buffer.Map(total_size, 64)",
         "native.copyBuffer(buffer.Handle(), download.Handle()",
+        "auto publish = [this, mapped, offset, total_size, buffer_address,",
+        "copies = std::move(copies), owner = std::move(temporary)]",
+        "(owner ? *owner : m_download_buffer).Invalidate(offset, total_size)",
+        "for (const auto& copy: copies)",
+        "Libs::LibKernel::Memory::WriteBacking(buffer_address + copy.srcOffset,",
+        "mapped + (copy.dstOffset - offset), copy.size)",
+        "m_scheduler.DeferPriorityOperation(std::move(publish));",
+        "m_scheduler.Wait(tick);",
+        "m_scheduler.WaitPriorityOperations(tick);",
+        "publish();",
     ]
     pos = -1
     for marker in markers:
@@ -50,6 +60,41 @@ class ProductionTransferSourceContractTests(unittest.TestCase):
         self.assertFalse(production_readback_contract(
             src.replace("native.copyBuffer(buffer.Handle(), download.Handle()",
                         "native.invalidCopy(buffer.Handle(), download.Handle()", 1)))
+
+    def test_reject_guest_offset_mutation(self):
+        src = FILE.read_text(encoding="utf-8")
+        marker = "mapped + (copy.dstOffset - offset), copy.size)"
+        self.assertIn(marker, src)
+        self.assertFalse(production_readback_contract(
+            src.replace(marker, "mapped + copy.dstOffset, copy.size)", 1)))
+
+    def test_reject_missing_guest_writeback(self):
+        src = FILE.read_text(encoding="utf-8")
+        marker = "Libs::LibKernel::Memory::WriteBacking(buffer_address + copy.srcOffset,"
+        self.assertIn(marker, src)
+        self.assertFalse(production_readback_contract(
+            src.replace(marker, "Libs::LibKernel::Memory::WrongBacking(buffer_address + copy.srcOffset,", 1)))
+
+    def test_reject_missing_staging_owner_capture(self):
+        src = FILE.read_text(encoding="utf-8")
+        marker = "copies = std::move(copies), owner = std::move(temporary)]"
+        self.assertIn(marker, src)
+        self.assertFalse(production_readback_contract(
+            src.replace(marker, "copies = std::move(copies)]", 1)))
+
+    def test_reject_missing_priority_wait(self):
+        src = FILE.read_text(encoding="utf-8")
+        marker = "m_scheduler.WaitPriorityOperations(tick);"
+        self.assertIn(marker, src)
+        self.assertFalse(production_readback_contract(src.replace(marker, "", 1)))
+
+    def test_reject_wrong_async_lane(self):
+        src = FILE.read_text(encoding="utf-8")
+        marker = "m_scheduler.DeferPriorityOperation(std::move(publish));"
+        self.assertIn(marker, src)
+        self.assertFalse(production_readback_contract(
+            src.replace(marker, "m_scheduler.DeferOperation(std::move(publish));", 1)))
+
 
 if __name__ == "__main__":
     unittest.main()
