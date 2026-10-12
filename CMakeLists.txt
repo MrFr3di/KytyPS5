@@ -711,6 +711,15 @@ target_include_directories(page_count_policy_bench PRIVATE
     ${KYTY_SOURCE_DIR} "${KYTY_TESTS_DIR}/TextureRangeSupport")
 target_link_libraries(page_count_policy_bench common fmt::fmt)
 
+# S4-B5-D: short path dispatcher cost, real native SlotId oracle.
+# Production TextureCache is unchanged in this slice.
+add_executable(shortpath_codegen_bench EXCLUDE_FROM_ALL
+    "${KYTY_TESTS_DIR}/ShortPathCodegenBench.cpp"
+)
+target_include_directories(shortpath_codegen_bench PRIVATE
+    ${KYTY_SOURCE_DIR} "${KYTY_TESTS_DIR}/TextureRangeSupport")
+target_link_libraries(shortpath_codegen_bench common fmt::fmt)
+
 # S4-B4b: native SlotId matched canonical vs canonical+lazy benchmark.
 add_executable(native_matched_range_bench EXCLUDE_FROM_ALL
     "${KYTY_TESTS_DIR}/NativeMatchedRangeBench.cpp"
@@ -795,6 +804,7 @@ if(BUILD_TESTING)
 	add_test(NAME canonical_bucket_walk COMMAND $<TARGET_FILE:canonical_bucket_walk_bench> 1 1 0)
 	add_test(NAME adaptive_canonical_walk COMMAND $<TARGET_FILE:adaptive_canonical_walk_bench> 1 4 0)
 	add_test(NAME page_count_policy COMMAND $<TARGET_FILE:page_count_policy_bench> 5 4 0)
+	add_test(NAME shortpath_codegen COMMAND $<TARGET_FILE:shortpath_codegen_bench> 2 2 0)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
 	add_test(NAME archive_file COMMAND $<TARGET_FILE:archive_file_tests>)
