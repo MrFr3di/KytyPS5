@@ -555,8 +555,8 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 		});
 	};
 #if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP
-	// ON stays experimental: retain short/single-bucket legacy behavior.
-	ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);
+	// S4-B5-C opt-in: long queries also use contiguous walk within one L1 bucket.
+	ForEachPageCountCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);
 #else
 	ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);
 #endif

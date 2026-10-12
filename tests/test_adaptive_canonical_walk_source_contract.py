@@ -21,13 +21,13 @@ def audit(c,h,b,cm,w):
         "image->query_epoch == query_epoch","image->query_epoch = query_epoch;",
         "image->Overlaps(address, size, page_overlap)",
         "#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP",
-        "ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);",
+        "ForEachPageCountCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);",
         "ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);",
         "m_range_telemetry.OnQuery(pages.last_exclusive - pages.first"): 
         if token not in p:return False
     for token in ("pages.first >= pages.last_exclusive",
        "pages.last_exclusive > PageTable::kPageCount",
-       "pages.last_exclusive - pages.first >= MinimumPages",
+       "return (pages.last_exclusive - pages.first >= MinimumPages) &&",
        "(pages.last_exclusive - 1) / PageTable::kBucketEntries",
        "ForEachCanonicalOwnerPage<true>(table, pages",
        "ForEachCanonicalOwnerPage<false>(table, pages"):
@@ -56,13 +56,13 @@ class SourceTests(unittest.TestCase):
         arr[n]=arr[n].replace(a,b,1)
         self.assertFalse(audit(*arr))
     def test_wrong_threshold(self):
-        self.mutate(0,"ForEachAdaptiveCanonicalOwnerPage<256>",
+        self.mutate(0,"ForEachPageCountCanonicalOwnerPage<256>",
                        "ForEachAdaptiveCanonicalOwnerPage<16>")
     def test_no_fallback(self):
         self.mutate(0,"ForEachCanonicalOwnerPage<false>","ForEachCanonicalOwnerPage<true>")
     def test_bad_page_bound(self):
-        self.mutate(1,"pages.last_exclusive - pages.first >= MinimumPages",
-                       "true")
+        self.mutate(1,"return (pages.last_exclusive - pages.first >= MinimumPages) &&",
+                       "return (true) &&")
     def test_bad_bucket_boundary(self):
         self.mutate(1,"(pages.last_exclusive - 1) / PageTable::kBucketEntries",
                        "(pages.last_exclusive) / PageTable::kBucketEntries")

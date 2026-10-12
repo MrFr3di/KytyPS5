@@ -23,7 +23,7 @@ def audit(c,h,p,cm,w):
       "image->Overlaps(address, size, page_overlap)",
       "m_range_telemetry.OnQuery(pages.last_exclusive - pages.first",
       "#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP",
-      "ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);",
+      "ForEachPageCountCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);",
       "ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);",
       "const auto visit_page =",
       "owners.ForEach([&](ImageId id)",
@@ -71,8 +71,8 @@ class SourceTests(unittest.TestCase):
     def test_gating_removed(self):
         self.mutant(0,"#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP",
                        "#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP)")
-    def test_removed_adaptive_gate(self):
-        self.mutant(0,"ForEachAdaptiveCanonicalOwnerPage<256>(",
+    def test_removed_page_count_gate(self):
+        self.mutant(0,"ForEachPageCountCanonicalOwnerPage<256>(",
                        "ForEachCanonicalOwnerPage<true>(")
     def test_loses_original_register(self):
         self.mutant(0,"m_image_page_table[page].push_back(id);","// dropped native owner")

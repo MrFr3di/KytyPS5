@@ -19,7 +19,7 @@ def audit(c,s,b,w):
     # S4-B5-B preserved S4-B4b native-provenance semantics: the canonical
     # nonallocating Find remains OFF, adaptive ON is still canonical-only.
     # Verify both compiled production callsites and the real fallback body.
-    if ("ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);" not in fn or
+    if ("ForEachPageCountCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);" not in fn or
         "ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);" not in fn or
         "table.Find(page)" not in w or
         "ForEachCanonicalOwnerPage<false>(table, pages" not in w):
@@ -71,8 +71,8 @@ class NativeMatchedSourceContractTests(unittest.TestCase):
     def test_missing_legacy_off(self):
         self.wrong(0,"ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);",
                    "ForEachCanonicalOwnerPage<true>(m_image_page_table, pages, visit_page);")
-    def test_missing_adaptive_on(self):
-        self.wrong(0,"ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);",
+    def test_missing_page_count_on(self):
+        self.wrong(0,"ForEachPageCountCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);",
                    "ForEachCanonicalOwnerPage<true>(m_image_page_table, pages, visit_page);")
     def test_missing_production_dedup(self):
         self.wrong(0,"image->query_epoch == query_epoch","image->query_epoch != query_epoch")

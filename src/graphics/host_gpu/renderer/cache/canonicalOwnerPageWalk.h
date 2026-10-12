@@ -59,5 +59,29 @@ bool ForEachAdaptiveCanonicalOwnerPage(
   return skip;
 }
 
+// S4-B5-C: validated page-count-only switch, even within one L1 bucket.
+// The canonical table and callback are identical for either path.
+template <size_t MinimumPages, class PageTable>
+[[nodiscard]] constexpr bool ShouldSkipCanonicalBucketsByPageCount(
+    typename PageTable::PageRange pages) noexcept {
+  static_assert(MinimumPages > 0);
+  return pages.first < pages.last_exclusive &&
+         pages.last_exclusive <= PageTable::kPageCount &&
+         pages.last_exclusive - pages.first >= MinimumPages;
+}
+
+template <size_t MinimumPages, class PageTable, class Callback>
+bool ForEachPageCountCanonicalOwnerPage(
+    const PageTable& table,
+    typename PageTable::PageRange pages,
+    Callback&& callback) {
+  const bool skip = ShouldSkipCanonicalBucketsByPageCount<MinimumPages, PageTable>(pages);
+  if (skip) {
+    ForEachCanonicalOwnerPage<true>(table, pages, std::forward<Callback>(callback));
+  } else {
+    ForEachCanonicalOwnerPage<false>(table, pages, std::forward<Callback>(callback));
+  }
+  return skip;
+}
 } // namespace Libs::Graphics
 #endif // KYTY_GRAPHICS_CANONICAL_OWNER_PAGE_WALK_H_
