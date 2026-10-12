@@ -67,6 +67,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/ShortPathCodegenBench.cpp /Fe:shortpath_codegen_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src tests/HotColdCanonicalBench.cpp /Fe:hotcold_canonical_fast.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and run G3-D0 descriptor heap CPU capacity
         shell: pwsh
         run: |
@@ -228,6 +230,38 @@ jobs:
           python tests/analyze_shortpath_codegen.py shortpath-codegen-fast.txt shortpath-codegen-summary-fast.csv --tool $kind > shortpath-codegen-driver-fast.txt
           if ($LASTEXITCODE -ne 0) { Get-Content shortpath-codegen-driver-fast.txt; exit $LASTEXITCODE }
           if (-not (Select-String -Path shortpath-codegen-driver-fast.txt -SimpleMatch 'S4_B5D_CODEGEN_PASS')) { throw 'S4-B5-D codegen provenance missing' }
+      - name: S4-B5-E native hot-cold adaptive CPU benchmark
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_hotcold_canonical_driver.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_hotcold_canonical_source_contract.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/run_hotcold_canonical.py ./hotcold_canonical_fast.exe hotcold-fast.csv hotcold-summary-fast.csv > hotcold-driver-fast.txt
+          if ($LASTEXITCODE -ne 0) { Get-Content hotcold-driver-fast.txt; exit $LASTEXITCODE }
+          if (-not (Select-String -Path hotcold-driver-fast.txt -SimpleMatch 'S4_B5E_HOTCOLD_PASS')) { throw 'S4-B5-E native evidence missing' }
+      - name: S4-B5-E optimized COFF hot-cold probe
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_hotcold_codegen_asm.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src /c tests/HotColdCodegenProbe.cpp /Fo:hotcold-codegen-fast.obj
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tool = Get-Command llvm-objdump.exe -ErrorAction SilentlyContinue
+          if ($null -ne $tool) {
+            & $tool.Source --disassemble hotcold-codegen-fast.obj | Out-File -FilePath hotcold-codegen-fast.txt -Encoding ascii
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $kind = 'llvm-objdump'
+          } else {
+            $tool = Get-Command dumpbin.exe -ErrorAction SilentlyContinue
+            if ($null -eq $tool) { throw 'S4-B5-E disassembler unavailable' }
+            & $tool.Source /DISASM hotcold-codegen-fast.obj | Out-File -FilePath hotcold-codegen-fast.txt -Encoding ascii
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $kind = 'dumpbin'
+          }
+          python tests/analyze_hotcold_codegen.py hotcold-codegen-fast.txt hotcold-codegen-summary-fast.csv --tool $kind > hotcold-codegen-driver-fast.txt
+          if ($LASTEXITCODE -ne 0) { Get-Content hotcold-codegen-driver-fast.txt; exit $LASTEXITCODE }
+          if (-not (Select-String -Path hotcold-codegen-driver-fast.txt -SimpleMatch 'S4_B5E_CODEGEN_PASS')) { throw 'S4-B5-E disassembly evidence missing' }
       - name: Run pure CPU A/B/C benchmark
         shell: pwsh
         run: |
@@ -313,6 +347,13 @@ jobs:
             shortpath-codegen-fast.txt
             shortpath-codegen-summary-fast.csv
             shortpath-codegen-driver-fast.txt
+            hotcold-fast.csv
+            hotcold-summary-fast.csv
+            hotcold-driver-fast.txt
+            hotcold-codegen-fast.obj
+            hotcold-codegen-fast.txt
+            hotcold-codegen-summary-fast.csv
+            hotcold-codegen-driver-fast.txt
           if-no-files-found: warn
 
   windows-range-index:
@@ -387,12 +428,12 @@ jobs:
       - name: Build standalone CPU tests
         shell: cmd
         run: |
-          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests native_matched_range_bench canonical_bucket_walk_bench adaptive_canonical_walk_bench page_count_policy_bench shortpath_codegen_bench descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests descriptor_heap_type_budget_tests descriptor_heap_pool_budget_tests --parallel 3
+          cmake --build _Build/windows-range --target image_range_index_tests image_page_table_tests image_range_index_bench image_range_hybrid_tests image_range_hybrid_bench image_range_allocation_bench image_range_native_id_tests image_range_cold_mix_bench image_range_heap_ledger_bench texture_range_telemetry_tests texture_workload_attribution_tests texture_gc_policy_oracle_tests texture_gc_lifecycle_fault_tests source_anchored_texture_lifetime_tests transfer_range_pareto_tests native_lazy_range_sidecar_tests native_matched_range_bench canonical_bucket_walk_bench adaptive_canonical_walk_bench page_count_policy_bench shortpath_codegen_bench hotcold_canonical_bench descriptor_heap_capacity_oracle_tests descriptor_heap_telemetry_tests descriptor_heap_type_budget_tests descriptor_heap_pool_budget_tests --parallel 3
 
       - name: Deterministic differential checks
         shell: cmd
         run: |
-          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|descriptor_heap_pool_budget|native_lazy_range_sidecar|native_matched_range|canonical_bucket_walk|adaptive_canonical_walk|page_count_policy|shortpath_codegen)$"
+          ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|descriptor_heap_pool_budget|native_lazy_range_sidecar|native_matched_range|canonical_bucket_walk|adaptive_canonical_walk|page_count_policy|shortpath_codegen|hotcold_canonical)$"
 
       - name: Export G2-B1 fault coverage
         shell: cmd
@@ -538,6 +579,18 @@ jobs:
           findstr /c:"S4_B5D_SHORTPATH_PASS" shortpath-driver.txt
           if errorlevel 1 exit /b 1
 
+      - name: S4-B5-E native hot-cold adaptive CPU benchmark
+        shell: cmd
+        run: |
+          python -m unittest discover -s tests -p test_hotcold_canonical_driver.py -v
+          if errorlevel 1 exit /b 1
+          python -m unittest discover -s tests -p test_hotcold_canonical_source_contract.py -v
+          if errorlevel 1 exit /b 1
+          python tests\run_hotcold_canonical.py _Build\windows-range\hotcold_canonical_bench.exe hotcold.csv hotcold-summary.csv > hotcold-driver.txt
+          if errorlevel 1 exit /b 1
+          findstr /c:"S4_B5E_HOTCOLD_PASS" hotcold-driver.txt
+          if errorlevel 1 exit /b 1
+
       - name: A/B/C deterministic CPU replay
         shell: cmd
         run: |
@@ -628,6 +681,9 @@ jobs:
             shortpath.csv
             shortpath-summary.csv
             shortpath-driver.txt
+            hotcold.csv
+            hotcold-summary.csv
+            hotcold-driver.txt
           if-no-files-found: warn
 
   linux-cpu-research:
@@ -656,6 +712,7 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-error=class-memaccess -I tests/TextureRangeSupport -I src tests/AdaptiveCanonicalBucketBench.cpp -o _Build/linux-cpu/adaptive_canonical_walk_bench
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-error=class-memaccess -I tests/TextureRangeSupport -I src tests/PageCountCanonicalPolicyBench.cpp -o _Build/linux-cpu/page_count_policy_bench
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-error=class-memaccess -I tests/TextureRangeSupport -I src tests/ShortPathCodegenBench.cpp -o _Build/linux-cpu/shortpath_codegen_bench
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-error=class-memaccess -I tests/TextureRangeSupport -I src tests/HotColdCanonicalBench.cpp -o _Build/linux-cpu/hotcold_canonical_bench
           g++ -std=c++20 -O2 tests/TextureGcPolicyOracleTests.cpp -o _Build/linux-cpu/texture_gc_policy_oracle_tests
       - name: Execute Linux CPU differentials and source tripwires
         shell: bash
@@ -704,6 +761,11 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_shortpath_codegen_asm.py' -v
           python3 tests/run_shortpath_codegen.py _Build/linux-cpu/shortpath_codegen_bench shortpath-linux.csv shortpath-summary-linux.csv > shortpath-driver-linux.txt
           grep -F 'S4_B5D_SHORTPATH_PASS' shortpath-driver-linux.txt
+          python3 -m unittest discover -s tests -p 'test_hotcold_canonical_driver.py' -v
+          python3 -m unittest discover -s tests -p 'test_hotcold_canonical_source_contract.py' -v
+          python3 -m unittest discover -s tests -p 'test_hotcold_codegen_asm.py' -v
+          python3 tests/run_hotcold_canonical.py _Build/linux-cpu/hotcold_canonical_bench hotcold-linux.csv hotcold-summary-linux.csv > hotcold-driver-linux.txt
+          grep -F 'S4_B5E_HOTCOLD_PASS' hotcold-driver-linux.txt
           _Build/linux-cpu/texture_gc_policy_oracle_tests > texture-gc-policy-linux.txt
           python3 -m unittest discover -s tests -p 'test_descriptor_heap_source_contract.py' -v
           python3 -m unittest discover -s tests -p 'test_buffer_transfer_source_contract.py' -v
@@ -736,6 +798,9 @@ jobs:
             shortpath-linux.csv
             shortpath-summary-linux.csv
             shortpath-driver-linux.txt
+            hotcold-linux.csv
+            hotcold-summary-linux.csv
+            hotcold-driver-linux.txt
             transfer-range-pareto-linux.csv
             transfer-scatter-safe-linux.csv
             image-range-differential-linux.txt
