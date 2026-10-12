@@ -42,6 +42,14 @@ public:
     std::array<uint64_t, kPageBins> generation_large_query_bins{};
     std::array<uint64_t, kPageBins> query_page_bins{};
     std::array<uint64_t, kPageBins> query_time_ns_by_page_bin{};
+    // S4-B5-F: aggregate counters only, no addresses, IDs or allocation.
+    uint64_t shape_queries = 0;
+    uint64_t shape_l1_cross_queries = 0;
+    uint64_t shape_pages_64plus = 0;
+    uint64_t shape_pages_256plus = 0;
+    uint64_t shape_pages_1024plus = 0;
+    uint64_t shape_pages_256plus_same_l1 = 0;
+    uint64_t shape_pages_256plus_cross_l1 = 0;
   };
 
   void OnRegister(uint64_t pages) noexcept {
@@ -75,6 +83,30 @@ public:
     ++m_data.query_page_bins[bin];
     m_data.query_time_ns_by_page_bin[bin] += elapsed_ns;
     if (pages >= 8) ++m_data.current_generation_large_queries;
+  }
+
+  // Called once after each validated, timed query, outside its timer.
+  // Validate before subtracting or calculating last_exclusive - 1.
+  // Only aggregate shape counts, never store guest addresses/page IDs.
+  [[nodiscard]] bool ObserveCanonicalSpan(uint64_t first, uint64_t last_exclusive,
+                                          uint64_t bucket_entries,
+                                          uint64_t page_count) noexcept {
+    if (bucket_entries == 0 || first >= last_exclusive ||
+        last_exclusive > page_count)
+      return false;
+    const uint64_t pages = last_exclusive - first;
+    const bool crosses_l1 =
+        (first / bucket_entries) != ((last_exclusive - 1) / bucket_entries);
+    ++m_data.shape_queries;
+    m_data.shape_l1_cross_queries += static_cast<uint64_t>(crosses_l1);
+    m_data.shape_pages_64plus += static_cast<uint64_t>(pages >= 64);
+    m_data.shape_pages_256plus += static_cast<uint64_t>(pages >= 256);
+    m_data.shape_pages_1024plus += static_cast<uint64_t>(pages >= 1024);
+    m_data.shape_pages_256plus_same_l1 +=
+        static_cast<uint64_t>(pages >= 256 && !crosses_l1);
+    m_data.shape_pages_256plus_cross_l1 +=
+        static_cast<uint64_t>(pages >= 256 && crosses_l1);
+    return true;
   }
 
   [[nodiscard]] const Counters& Data() const noexcept { return m_data; }
@@ -124,6 +156,14 @@ public:
       std::fprintf(output, "query_ns_pages_%s,%llu\n", kNames[i],
                    static_cast<unsigned long long>(m_data.query_time_ns_by_page_bin[i]));
     }
+    // Append only: original metric names and order remain unchanged.
+    emit("shape_queries", m_data.shape_queries);
+    emit("shape_l1_cross_queries", m_data.shape_l1_cross_queries);
+    emit("shape_pages_64plus", m_data.shape_pages_64plus);
+    emit("shape_pages_256plus", m_data.shape_pages_256plus);
+    emit("shape_pages_1024plus", m_data.shape_pages_1024plus);
+    emit("shape_pages_256plus_same_l1", m_data.shape_pages_256plus_same_l1);
+    emit("shape_pages_256plus_cross_l1", m_data.shape_pages_256plus_cross_l1);
   }
 private:
   static size_t PageBin(uint64_t pages) noexcept {

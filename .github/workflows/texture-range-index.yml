@@ -144,6 +144,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\\texture_range_telemetry_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_texture_query_shape_analyzer.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_texture_query_shape_source_contract.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\\texture_range_telemetry_fast.exe --shape-fixture > texture-shape-fast.csv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/analyze_texture_query_shape.py --fixture texture-shape-fast.csv > texture-shape-analyzed-fast.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Select-String -Path texture-shape-analyzed-fast.json -SimpleMatch 'SYNTHETIC_CI_FIXTURE')) { throw 'S4-B5-F fixture provenance missing' }
+          Write-Output 'S4_B5F_SHAPE_PASS,SYNTHETIC_CI_FIXTURE' | Out-File -FilePath texture-shape-driver-fast.txt -Encoding ascii
           .\\texture_workload_attribution_fast.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\\texture_gc_policy_oracle_fast.exe
@@ -354,6 +364,9 @@ jobs:
             hotcold-codegen-fast.txt
             hotcold-codegen-summary-fast.csv
             hotcold-codegen-driver-fast.txt
+            texture-shape-fast.csv
+            texture-shape-analyzed-fast.json
+            texture-shape-driver-fast.txt
           if-no-files-found: warn
 
   windows-range-index:
@@ -434,6 +447,21 @@ jobs:
         shell: cmd
         run: |
           ctest --test-dir _Build/windows-range --output-on-failure -R "^(image_range_index|image_range_hybrid|image_range_native_id|image_page_table|texture_range_telemetry|texture_workload_attribution|texture_gc_policy_oracle|texture_gc_lifecycle_fault|source_anchored_texture_lifetime|transfer_range_pareto|transfer_range_scatter|descriptor_heap_capacity_oracle|descriptor_heap_waste|descriptor_heap_telemetry|descriptor_heap_type_budget|descriptor_heap_pool_budget|native_lazy_range_sidecar|native_matched_range|canonical_bucket_walk|adaptive_canonical_walk|page_count_policy|shortpath_codegen|hotcold_canonical)$"
+
+      - name: S4-B5-F synthetic canonical shape telemetry contract
+        shell: cmd
+        run: |
+          python -m unittest discover -s tests -p test_texture_query_shape_analyzer.py -v
+          if errorlevel 1 exit /b 1
+          python -m unittest discover -s tests -p test_texture_query_shape_source_contract.py -v
+          if errorlevel 1 exit /b 1
+          _Build\windows-range\texture_range_telemetry_tests.exe --shape-fixture > texture-shape.csv
+          if errorlevel 1 exit /b 1
+          python scripts\analyze_texture_query_shape.py --fixture texture-shape.csv > texture-shape-analyzed.json
+          if errorlevel 1 exit /b 1
+          findstr /c:"SYNTHETIC_CI_FIXTURE" texture-shape-analyzed.json
+          if errorlevel 1 exit /b 1
+          echo S4_B5F_SHAPE_PASS,SYNTHETIC_CI_FIXTURE> texture-shape-driver.txt
 
       - name: Export G2-B1 fault coverage
         shell: cmd
@@ -684,6 +712,9 @@ jobs:
             hotcold.csv
             hotcold-summary.csv
             hotcold-driver.txt
+            texture-shape.csv
+            texture-shape-analyzed.json
+            texture-shape-driver.txt
           if-no-files-found: warn
 
   linux-cpu-research:
@@ -703,6 +734,7 @@ jobs:
           { echo "SHA=${{ github.sha }}"; uname -a; g++ --version | head -n 1; python3 --version; } > linux-runner-details.txt
           g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/DescriptorHeapCapacityOracleTests.cpp -o _Build/linux-cpu/descriptor_heap_capacity_oracle_tests
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapTelemetryTests.cpp -o _Build/linux-cpu/descriptor_heap_telemetry_tests
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/TextureRangeTelemetryTests.cpp -o _Build/linux-cpu/texture_range_telemetry_tests
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapTypeBudgetTests.cpp -o _Build/linux-cpu/descriptor_heap_type_budget_tests
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -I src tests/DescriptorHeapPoolBudgetTests.cpp -o _Build/linux-cpu/descriptor_heap_pool_budget_tests
           g++ -std=c++20 -O2 -I tests/TextureRangeSupport -I src tests/TransferRangeParetoTests.cpp -o _Build/linux-cpu/transfer_range_pareto_tests
@@ -766,6 +798,13 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_hotcold_codegen_asm.py' -v
           python3 tests/run_hotcold_canonical.py _Build/linux-cpu/hotcold_canonical_bench hotcold-linux.csv hotcold-summary-linux.csv > hotcold-driver-linux.txt
           grep -F 'S4_B5E_HOTCOLD_PASS' hotcold-driver-linux.txt
+          python3 -m unittest discover -s tests -p 'test_texture_query_shape_analyzer.py' -v
+          python3 -m unittest discover -s tests -p 'test_texture_query_shape_source_contract.py' -v
+          _Build/linux-cpu/texture_range_telemetry_tests
+          _Build/linux-cpu/texture_range_telemetry_tests --shape-fixture > texture-shape-linux.csv
+          python3 scripts/analyze_texture_query_shape.py --fixture texture-shape-linux.csv > texture-shape-analyzed-linux.json
+          grep -F 'SYNTHETIC_CI_FIXTURE' texture-shape-analyzed-linux.json
+          echo 'S4_B5F_SHAPE_PASS,SYNTHETIC_CI_FIXTURE' > texture-shape-driver-linux.txt
           _Build/linux-cpu/texture_gc_policy_oracle_tests > texture-gc-policy-linux.txt
           python3 -m unittest discover -s tests -p 'test_descriptor_heap_source_contract.py' -v
           python3 -m unittest discover -s tests -p 'test_buffer_transfer_source_contract.py' -v
@@ -801,6 +840,9 @@ jobs:
             hotcold-linux.csv
             hotcold-summary-linux.csv
             hotcold-driver-linux.txt
+            texture-shape-linux.csv
+            texture-shape-analyzed-linux.json
+            texture-shape-driver-linux.txt
             transfer-range-pareto-linux.csv
             transfer-scatter-safe-linux.csv
             image-range-differential-linux.txt

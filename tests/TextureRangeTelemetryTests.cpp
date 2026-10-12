@@ -71,10 +71,70 @@ void TestDumpNoAddresses() {
   Check(csv.find("queried_pages,2048") != std::string::npos,
         "sum counts but not guest addresses");
 }
+// Exact 1-MiB page geometry: L1 bucket contains 1024 pages, page count 2^24.
+// Separate synthetic fixture; it is NOT game capture or real FPS evidence.
+TextureRangeTelemetry MakeShapeFixture() {
+  TextureRangeTelemetry t;
+  struct Span { uint64_t first, last; };
+  constexpr Span ranges[] = {
+    {1023, 1024},  // 1 page; last page of L1 without crossing
+    {1023, 1025},  // 2 pages; crosses L1
+    {1000, 1064},  // 64 pages; crosses L1
+    {100, 356},    // 256 pages; stays inside L1
+    {900, 1156},   // 256 pages; crosses L1
+    {0, 1024},     // 1024 pages; stays inside L1
+    {0, 1025},     // 1025 pages; crosses L1
+  };
+  for (size_t i = 0; i < sizeof(ranges) / sizeof(ranges[0]); ++i) {
+    const auto [first, last] = ranges[i];
+    const auto pages = last - first;
+    t.OnQuery(pages, false, 0, 0, 10);
+    Check(t.ObserveCanonicalSpan(first, last, 1024, uint64_t{1} << 24),
+          "valid canonical span");
+  }
+  return t;
 }
-int main() {
+void TestCanonicalSpanShape() {
+  TextureRangeTelemetry telemetry = MakeShapeFixture();
+  const auto original = telemetry.Data();
+  Check(original.queries == 7 && original.queried_pages == 1+2+64+256+256+1024+1025,
+        "old metric semantics preserved");
+  Check(original.shape_queries == 7 && original.shape_l1_cross_queries == 4,
+        "shape total and L1-cross counts");
+  Check(original.shape_pages_64plus == 5 &&
+        original.shape_pages_256plus == 4 &&
+        original.shape_pages_1024plus == 2, "page threshold boundaries");
+  Check(original.shape_pages_256plus_same_l1 == 2 &&
+        original.shape_pages_256plus_cross_l1 == 2,
+        "cross/within L1 partition for T256");
+  Check(!telemetry.ObserveCanonicalSpan(0, 0, 1024, uint64_t{1}<<24),
+        "reject empty");
+  Check(!telemetry.ObserveCanonicalSpan(300, 100, 1024, uint64_t{1}<<24),
+        "reject inverted");
+  Check(!telemetry.ObserveCanonicalSpan(100, 356, 0, uint64_t{1}<<24),
+        "reject division by zero");
+  Check(!telemetry.ObserveCanonicalSpan((uint64_t{1}<<24)-1,
+        (uint64_t{1}<<24)+1, 1024, uint64_t{1}<<24),
+        "reject beyond 44-bit address space");
+  Check(!telemetry.ObserveCanonicalSpan(0, UINT64_MAX, 1024,
+                                       uint64_t{1}<<24),
+        "reject out-of-range last page");
+  const auto& after = telemetry.Data();
+  Check(after.shape_queries == original.shape_queries &&
+        after.shape_l1_cross_queries == original.shape_l1_cross_queries &&
+        after.shape_pages_256plus == original.shape_pages_256plus,
+        "invalid observations cannot affect counters");
+}
+}
+int main(int argc, char** argv) {
+  if (argc == 2 && std::string(argv[1]) == "--shape-fixture") {
+    // Sole purpose: strictly labeled synthetic fixture for offline CI parser.
+    MakeShapeFixture().WriteCsv(stdout);
+    return 0;
+  }
   TestBinsAndGenerations();
   TestDumpNoAddresses();
+  TestCanonicalSpanShape();
   std::puts("TextureRangeTelemetryTests: counters and CSV PASS");
   return 0;
 }

@@ -567,6 +567,11 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 		m_range_telemetry.OnQuery(pages.last_exclusive - pages.first, page_overlap,
 		                          inspected_owners, result.size(),
 		                          static_cast<uint64_t>(elapsed));
+		// S4-B5-F: bounded shape counters only, after the lookup clock stops.
+		// The original query, owner ordering and epoch filtering are unchanged.
+		(void)m_range_telemetry.ObserveCanonicalSpan(
+		    pages.first, pages.last_exclusive, ImagePageTable::kBucketEntries,
+		    ImagePageTable::kPageCount);
 	}
 #endif
 	return result;
