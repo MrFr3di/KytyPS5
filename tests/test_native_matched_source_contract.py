@@ -16,12 +16,13 @@ def audit(c,s,b,w):
     stop=c.find("\nImageId TextureCache::GetNullImage(",start)
     if start<0 or stop<=start:return False
     fn=c[start:stop]
-    # The original canonical Find(page) is now instantiated by the OFF
-    # specialization of the shared production page-walk header. Verify BOTH
-    # the production dispatch and the exact nonallocating fallback source.
-    if ("ForEachCanonicalOwnerPage<skip_never_allocated_buckets>(" not in fn or
-        "m_image_page_table, pages," not in fn or
-        "table.Find(page)" not in w):
+    # S4-B5-B preserved S4-B4b native-provenance semantics: the canonical
+    # nonallocating Find remains OFF, adaptive ON is still canonical-only.
+    # Verify both compiled production callsites and the real fallback body.
+    if ("ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);" not in fn or
+        "ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);" not in fn or
+        "table.Find(page)" not in w or
+        "ForEachCanonicalOwnerPage<false>(table, pages" not in w):
         return False
     for key in ("image->query_epoch == query_epoch",
                 "image->query_epoch = query_epoch;",
@@ -67,6 +68,12 @@ class NativeMatchedSourceContractTests(unittest.TestCase):
         self.assertIn(old,v[idx])
         v[idx]=v[idx].replace(old,new,1)
         self.assertFalse(audit(*v))
+    def test_missing_legacy_off(self):
+        self.wrong(0,"ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);",
+                   "ForEachCanonicalOwnerPage<true>(m_image_page_table, pages, visit_page);")
+    def test_missing_adaptive_on(self):
+        self.wrong(0,"ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);",
+                   "ForEachCanonicalOwnerPage<true>(m_image_page_table, pages, visit_page);")
     def test_missing_production_dedup(self):
         self.wrong(0,"image->query_epoch == query_epoch","image->query_epoch != query_epoch")
     def test_no_sidecar_fallback(self):
