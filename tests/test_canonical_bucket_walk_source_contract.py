@@ -23,10 +23,9 @@ def audit(c,h,p,cm,w):
       "image->Overlaps(address, size, page_overlap)",
       "m_range_telemetry.OnQuery(pages.last_exclusive - pages.first",
       "#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP",
-      "constexpr bool skip_never_allocated_buckets = true;",
-      "constexpr bool skip_never_allocated_buckets = false;",
-      "ForEachCanonicalOwnerPage<skip_never_allocated_buckets>(",
-      "m_image_page_table, pages,",
+      "ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);",
+      "ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);",
+      "const auto visit_page =",
       "owners.ForEach([&](ImageId id)",
     ):
         if phrase not in f:return False
@@ -36,6 +35,9 @@ def audit(c,h,p,cm,w):
         return False
     for phrase in ("if constexpr (SkipNeverAllocatedBuckets)",
       "table.ForEachAllocatedPageInRange(", "table.Find(page)",
+      "ShouldSkipCanonicalBuckets<MinimumPages, PageTable>(pages)",
+      "ForEachCanonicalOwnerPage<true>(table, pages",
+      "ForEachCanonicalOwnerPage<false>(table, pages",
       "if (!owners.empty()) callback(page,owners)",
       "owners!=nullptr && !owners->empty()"):
         if phrase not in h:return False
@@ -69,6 +71,9 @@ class SourceTests(unittest.TestCase):
     def test_gating_removed(self):
         self.mutant(0,"#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP",
                        "#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP)")
+    def test_removed_adaptive_gate(self):
+        self.mutant(0,"ForEachAdaptiveCanonicalOwnerPage<256>(",
+                       "ForEachCanonicalOwnerPage<true>(")
     def test_loses_original_register(self):
         self.mutant(0,"m_image_page_table[page].push_back(id);","// dropped native owner")
 if __name__=="__main__":unittest.main()

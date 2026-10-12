@@ -695,6 +695,14 @@ target_include_directories(canonical_bucket_walk_bench PRIVATE
     ${KYTY_SOURCE_DIR} "${KYTY_TESTS_DIR}/TextureRangeSupport")
 target_link_libraries(canonical_bucket_walk_bench common fmt::fmt)
 
+# S4-B5-B: independent adaptive threshold sweep, real SlotId and canonical table.
+add_executable(adaptive_canonical_walk_bench EXCLUDE_FROM_ALL
+    "${KYTY_TESTS_DIR}/AdaptiveCanonicalBucketBench.cpp"
+)
+target_include_directories(adaptive_canonical_walk_bench PRIVATE
+    ${KYTY_SOURCE_DIR} "${KYTY_TESTS_DIR}/TextureRangeSupport")
+target_link_libraries(adaptive_canonical_walk_bench common fmt::fmt)
+
 # S4-B4b: native SlotId matched canonical vs canonical+lazy benchmark.
 add_executable(native_matched_range_bench EXCLUDE_FROM_ALL
     "${KYTY_TESTS_DIR}/NativeMatchedRangeBench.cpp"
@@ -777,6 +785,7 @@ if(BUILD_TESTING)
 	add_test(NAME native_lazy_range_sidecar COMMAND $<TARGET_FILE:native_lazy_range_sidecar_tests>)
 	add_test(NAME native_matched_range COMMAND $<TARGET_FILE:native_matched_range_bench> 0 0 0)
 	add_test(NAME canonical_bucket_walk COMMAND $<TARGET_FILE:canonical_bucket_walk_bench> 1 1 0)
+	add_test(NAME adaptive_canonical_walk COMMAND $<TARGET_FILE:adaptive_canonical_walk_bench> 1 4 0)
 	add_test(NAME memory_tracker COMMAND $<TARGET_FILE:memory_tracker_tests>)
 	add_test(NAME page_manager COMMAND $<TARGET_FILE:page_manager_tests>)
 	add_test(NAME archive_file COMMAND $<TARGET_FILE:archive_file_tests>)

@@ -536,15 +536,7 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 	}
 
 	ImageIds result;
-#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP
-	// ON: skip only L1 buckets that were never allocated; no second index.
-	constexpr bool skip_never_allocated_buckets = true;
-#else
-	// OFF is the default and preserves the original page-by-page traversal.
-	constexpr bool skip_never_allocated_buckets = false;
-#endif
-	ForEachCanonicalOwnerPage<skip_never_allocated_buckets>(
-	    m_image_page_table, pages, [&](size_t /*page*/, const ImageIds& owners) {
+	const auto visit_page = [&](size_t /*page*/, const ImageIds& owners) {
 		owners.ForEach([&](ImageId id) {
 #if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
 			if (m_range_telemetry_enabled) ++inspected_owners;
@@ -561,7 +553,13 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 				result.push_back(id);
 			}
 		});
-	    });
+	};
+#if defined(KYTY_TEXTURE_CANONICAL_BUCKET_SKIP) && KYTY_TEXTURE_CANONICAL_BUCKET_SKIP
+	// ON stays experimental: retain short/single-bucket legacy behavior.
+	ForEachAdaptiveCanonicalOwnerPage<256>(m_image_page_table, pages, visit_page);
+#else
+	ForEachCanonicalOwnerPage<false>(m_image_page_table, pages, visit_page);
+#endif
 #if defined(KYTY_TEXTURE_RANGE_TELEMETRY) && KYTY_TEXTURE_RANGE_TELEMETRY
 	if (m_range_telemetry_enabled) {
 		const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(

@@ -30,5 +30,34 @@ void ForEachCanonicalOwnerPage(
     }
   }
 }
+// S4-B5-B: stateless dispatch, using only a validated half-open PageRange.
+// A crossing of a 1-GiB L1 boundary is necessary, not sufficient, to skip.
+// Subtraction and last_exclusive - 1 occur only after range validation.
+template <size_t MinimumPages, class PageTable>
+[[nodiscard]] constexpr bool ShouldSkipCanonicalBuckets(
+    typename PageTable::PageRange pages) noexcept {
+  static_assert(MinimumPages > 0);
+  if (pages.first >= pages.last_exclusive ||
+      pages.last_exclusive > PageTable::kPageCount)
+    return false;
+  return (pages.last_exclusive - pages.first >= MinimumPages) &&
+         ((pages.first / PageTable::kBucketEntries) !=
+          ((pages.last_exclusive - 1) / PageTable::kBucketEntries));
+}
+
+template <size_t MinimumPages, class PageTable, class Callback>
+bool ForEachAdaptiveCanonicalOwnerPage(
+    const PageTable& table,
+    typename PageTable::PageRange pages,
+    Callback&& callback) {
+  const bool skip = ShouldSkipCanonicalBuckets<MinimumPages, PageTable>(pages);
+  if (skip) {
+    ForEachCanonicalOwnerPage<true>(table, pages, std::forward<Callback>(callback));
+  } else {
+    ForEachCanonicalOwnerPage<false>(table, pages, std::forward<Callback>(callback));
+  }
+  return skip;
+}
+
 } // namespace Libs::Graphics
 #endif // KYTY_GRAPHICS_CANONICAL_OWNER_PAGE_WALK_H_
