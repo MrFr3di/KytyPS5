@@ -34,6 +34,9 @@ def audit(c,h,b,probe,cm,w):
               "ForEachCanonicalOwnerPage<true>(pages,range,visit)",
               "constexpr size_t kBatch[]={8,512,2048,2048,128,128}"):
         if v not in b:return False
+    # Both the direct legacy helper and manual adaptive-false fallback
+    # must survive; checking only substring presence misses deleting one.
+    if b.count("ForEachCanonicalOwnerPage<false>(pages,range,visit)")!=2:return False
     for v in ("KytyB5DDirectFind","KytyB5DCanonicalLegacy",
               "KytyB5DPageOnly256","KytyB5DManual256",
               "KYTY_B5D_NOINLINE"):
