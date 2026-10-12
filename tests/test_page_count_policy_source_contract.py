@@ -40,9 +40,11 @@ def audit(c,h,b,cm,w):
     if "target_compile_definitions(kyty_emulator PRIVATE KYTY_TEXTURE_CANONICAL_BUCKET_SKIP=1)" not in cm:return False
     if "PageCountCanonicalPolicyBench.cpp" not in cm or "page_count_policy_bench" not in cm:return False
     for v in ("-DKYTY_TEXTURE_CANONICAL_BUCKET_SKIP=ON","run_page_count_policy.py",
-      "S4_B5C_PAGE_COUNT_PASS","page-policy-fast.csv","page-policy-linux.csv",
-      "page-policy.csv"):
+      "page-policy-fast.csv","page-policy-linux.csv","page-policy.csv"):
         if v not in w:return False
+    # One distinct strict PASS sentinel on each of the three existing jobs.
+    # Replacing or deleting any one must be rejected, not masked by another.
+    if w.count("S4_B5C_PAGE_COUNT_PASS") != 3:return False
     return True
 class SourceTests(unittest.TestCase):
     def test_original(self):self.assertTrue(audit(*source()))
