@@ -211,7 +211,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_shortpath_codegen_asm.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          clang-cl /nologo /std:c++20 /O2 /EHsc /I src /c tests/ShortPathCodegenProbe.cpp /Fo:shortpath-codegen-fast.obj
+          clang-cl /nologo /std:c++20 /O2 /EHsc /I tests/TextureRangeSupport /I src /c tests/ShortPathCodegenProbe.cpp /Fo:shortpath-codegen-fast.obj
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $dumpTool = Get-Command llvm-objdump.exe -ErrorAction SilentlyContinue
           if ($null -ne $dumpTool) {
