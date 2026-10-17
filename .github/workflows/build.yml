@@ -16,7 +16,16 @@ env:
   KYTY_BUILD_REPOSITORY: ${{ github.repository }}
 
 jobs:
+  # Registered on the default branch already. Explicit workflow_dispatch with
+  # ref=perf/cpu-runtime-research runs only CPU tests on the feature-branch YAML.
+  # Never launch release, macOS, or the general build for CPU-only dispatches.
+  cpu-research:
+    name: Feature branch CPU baseline
+    if: github.ref == 'refs/heads/perf/cpu-runtime-research'
+    uses: ./.github/workflows/cpu-runtime-research.yml
+
   metadata:
+    if: github.ref != 'refs/heads/perf/cpu-runtime-research'
     name: Prepare build metadata
     runs-on: ubuntu-latest
     outputs:
