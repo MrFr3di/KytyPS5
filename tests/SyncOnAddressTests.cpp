@@ -1,5 +1,9 @@
 #include "kernel/syncOnAddress.h"
 
+#ifdef KYTY_CPU_PROFILE_TEST_COUNTERS
+#include "common/debugCounters.h"
+#endif
+
 #include "libs/errno.h"
 
 #include <atomic>
@@ -309,6 +313,34 @@ void TestWakeZeroIsNoOp() {
   }
 }
 
+#ifdef KYTY_CPU_PROFILE_TEST_COUNTERS
+void TestProfileCountersOptIn() {
+  using namespace Common::DebugCounters;
+  volatile uint32_t word = 9;
+  uint32_t zero = 0;
+  const auto before_calls = Get(Counter::CpuAddressWaitCalls);
+  const auto before_changed = Get(Counter::CpuAddressImmediateMismatch);
+  const auto before_registered = Get(Counter::CpuAddressRegistered);
+
+  SetEnabled(false);
+  Check(Wait32(&word, 0, &zero) == OK, "unprofiled mismatch still succeeds");
+  Check(Get(Counter::CpuAddressWaitCalls) == before_calls,
+        "disabled overlay does not count address waits");
+
+  SetEnabled(true);
+  Check(Wait32(&word, 0, &zero) == OK, "profiled mismatch succeeds");
+  Check(Wait32(&word, 9, &zero) == Libs::LibKernel::KERNEL_ERROR_ETIMEDOUT,
+        "profiled registered zero-timeout wait expires");
+  Check(Get(Counter::CpuAddressWaitCalls) == before_calls + 2,
+        "profile counts both valid wait calls");
+  Check(Get(Counter::CpuAddressImmediateMismatch) == before_changed + 1,
+        "profile counts only immediate mismatch");
+  Check(Get(Counter::CpuAddressRegistered) == before_registered + 1,
+        "profile counts only matching address registrations");
+  SetEnabled(false);
+}
+#endif
+
 } // namespace
 
 int main() {
@@ -322,6 +354,9 @@ int main() {
   TestAddressesAreIsolated();
   TestCompareRegisterWakeRace();
   TestWakeZeroIsNoOp();
+#ifdef KYTY_CPU_PROFILE_TEST_COUNTERS
+  TestProfileCountersOptIn();
+#endif
   std::printf("SyncOnAddressTests: all passed\n");
   return 0;
 }
