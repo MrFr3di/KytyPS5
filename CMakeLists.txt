@@ -584,6 +584,15 @@ target_include_directories(sync_on_address_cpu_bench PRIVATE ${inc_headers})
 
 set(KYTY_SYNC_BASELINE_SOURCE "${CMAKE_BINARY_DIR}/cpu_baseline_sync_on_address.cpp")
 if(EXISTS "${KYTY_SYNC_BASELINE_SOURCE}")
+	# Compile the *same* correctness oracle against the original source
+	# before accepting any latency comparison from the optimized branch.
+	add_executable(sync_on_address_tests_baseline EXCLUDE_FROM_ALL
+		"${KYTY_TESTS_DIR}/SyncOnAddressTests.cpp"
+		"${KYTY_SYNC_BASELINE_SOURCE}"
+	)
+	target_link_libraries(sync_on_address_tests_baseline common)
+	target_include_directories(sync_on_address_tests_baseline PRIVATE ${inc_headers})
+
 	add_executable(sync_on_address_cpu_bench_baseline EXCLUDE_FROM_ALL
 		"${KYTY_TESTS_DIR}/SyncOnAddressCpuBench.cpp"
 		"${KYTY_SYNC_BASELINE_SOURCE}"
@@ -662,6 +671,9 @@ if(BUILD_TESTING)
 	add_test(NAME event_queue_lifetime COMMAND $<TARGET_FILE:event_queue_lifetime_tests>)
 	add_test(NAME kernel_file_system COMMAND $<TARGET_FILE:kernel_file_system_tests>)
 	add_test(NAME sync_on_address COMMAND $<TARGET_FILE:sync_on_address_tests>)
+	if(TARGET sync_on_address_tests_baseline)
+		add_test(NAME sync_on_address_baseline COMMAND $<TARGET_FILE:sync_on_address_tests_baseline>)
+	endif()
 	add_test(NAME audio_out2_port COMMAND $<TARGET_FILE:audio_out2_port_tests>)
 	add_test(NAME audio_out_timing COMMAND $<TARGET_FILE:audio_out_timing_tests>)
 	add_test(NAME ngs2_sampler COMMAND $<TARGET_FILE:ngs2_sampler_tests>)
