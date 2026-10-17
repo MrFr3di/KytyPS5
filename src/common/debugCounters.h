@@ -59,6 +59,14 @@ enum class Counter {
 	CpuEventFlagParkNs,
 	CpuEventFlagDrainCalls,
 	CpuEventFlagDrainNs,
+	// CPU-PROFILE-001B: actual wait attempts and guest API family attribution.
+	CpuAddressParkCalls,
+	CpuAddressParkNs,
+	CpuGuestLegacyAddressWaits,
+	CpuGuestTypedAddressWaits,
+	CpuGuestUmtxAddressWaits,
+	CpuGuestKernelAddressWakes,
+	CpuGuestUmtxAddressWakes,
 	Count
 };
 
@@ -83,6 +91,39 @@ inline void Add(Counter counter, uint64_t value = 1) noexcept {
 		return;
 	}
 	Detail::g_counters[static_cast<int>(counter)].fetch_add(value, std::memory_order_relaxed);
+}
+
+// Source attribution is deliberately by HLE API family, never by guest PC.
+// Each guest wrapper records exactly one entry before invoking the core primitive.
+enum class GuestSyncEntry {
+	LegacyAddressWait,
+	TypedAddressWait,
+	UmtxAddressWait,
+	KernelAddressWake,
+	UmtxAddressWake,
+};
+
+inline void RecordGuestSyncEntry(GuestSyncEntry entry) noexcept {
+	Counter counter;
+	switch (entry) {
+		case GuestSyncEntry::LegacyAddressWait:
+			counter = Counter::CpuGuestLegacyAddressWaits;
+			break;
+		case GuestSyncEntry::TypedAddressWait:
+			counter = Counter::CpuGuestTypedAddressWaits;
+			break;
+		case GuestSyncEntry::UmtxAddressWait:
+			counter = Counter::CpuGuestUmtxAddressWaits;
+			break;
+		case GuestSyncEntry::KernelAddressWake:
+			counter = Counter::CpuGuestKernelAddressWakes;
+			break;
+		case GuestSyncEntry::UmtxAddressWake:
+			counter = Counter::CpuGuestUmtxAddressWakes;
+			break;
+		default: return;
+	}
+	Add(counter);
 }
 
 class ScopedTimer final {
