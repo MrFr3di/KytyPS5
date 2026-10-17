@@ -192,6 +192,14 @@ void UnregisterPortableWaiter(volatile void*                               addre
 template <typename T>
 int WaitPortable(volatile T* address, T expected, const WaitDeadline& deadline,
                  signal_poll_func_t signal_poll) {
+	// Most calls observe that the value has already changed. Do not allocate a
+	// waiter or acquire the global address registry lock on that uncontended path.
+	// The registered path below still checks the value while holding entry->mutex
+	// to avoid losing a wake that races with registration.
+	if (ReadWord(address) != expected) {
+		return OK;
+	}
+
 	PortableWaiter waiter;
 	auto           entry      = RegisterPortableWaiter(address, &waiter);
 	bool           first_wait = true;
