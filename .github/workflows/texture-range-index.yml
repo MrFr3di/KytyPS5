@@ -1,6 +1,7 @@
 name: KYTY-INDEX-001 Windows + parallel Linux CPU research
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - perf/texture-range-index
