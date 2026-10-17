@@ -2,6 +2,7 @@
 #include "common/assert.h"
 #include "common/common.h"
 #include "common/emulatorConfig.h"
+#include "common/debugCounters.h"
 #include "common/file.h"
 #include "common/logging/log.h"
 #include "common/singleton.h"
@@ -2107,6 +2108,8 @@ static void LogExperimentalSyncOnAddress(std::atomic_bool& logged, const char* f
 
 int KYTY_SYSV_ABI KernelSyncOnAddressWait(volatile uint32_t* address, uint32_t expected,
                                           const uint32_t* timeout_micros) {
+	Common::DebugCounters::RecordGuestSyncEntry(
+	    Common::DebugCounters::GuestSyncEntry::LegacyAddressWait);
 	return LibKernel::SyncOnAddress::Wait32(address, expected, timeout_micros,
 	                                        LibKernel::KernelDispatchPendingSignalForCurrentThread);
 }
@@ -2115,6 +2118,8 @@ int KYTY_SYSV_ABI KernelSyncOnAddressWait32(volatile uint32_t* address, uint32_t
                                             const uint32_t* timeout_micros) {
 	static std::atomic_bool logged {false};
 	LogExperimentalSyncOnAddress(logged, "sceKernelSyncOnAddressWait32");
+	Common::DebugCounters::RecordGuestSyncEntry(
+	    Common::DebugCounters::GuestSyncEntry::TypedAddressWait);
 	return LibKernel::SyncOnAddress::Wait32(address, expected, timeout_micros,
 	                                        LibKernel::KernelDispatchPendingSignalForCurrentThread);
 }
@@ -2123,11 +2128,15 @@ int KYTY_SYSV_ABI KernelSyncOnAddressWait64(volatile uint64_t* address, uint64_t
                                             const uint32_t* timeout_micros) {
 	static std::atomic_bool logged {false};
 	LogExperimentalSyncOnAddress(logged, "sceKernelSyncOnAddressWait64");
+	Common::DebugCounters::RecordGuestSyncEntry(
+	    Common::DebugCounters::GuestSyncEntry::TypedAddressWait);
 	return LibKernel::SyncOnAddress::Wait64(address, expected, timeout_micros,
 	                                        LibKernel::KernelDispatchPendingSignalForCurrentThread);
 }
 
 int KYTY_SYSV_ABI KernelSyncOnAddressWake(volatile void* address, int32_t count) {
+	Common::DebugCounters::RecordGuestSyncEntry(
+	    Common::DebugCounters::GuestSyncEntry::KernelAddressWake);
 	return LibKernel::SyncOnAddress::Wake(address, count);
 }
 
@@ -2140,6 +2149,8 @@ int KYTY_SYSV_ABI UmtxOp(volatile void* address, int operation, uint64_t value,
 
 	switch (operation) {
 		case UMTX_OP_WAIT:
+			Common::DebugCounters::RecordGuestSyncEntry(
+			    Common::DebugCounters::GuestSyncEntry::UmtxAddressWait);
 			if (timeout != nullptr) {
 				LibKernel::KernelTimespec duration {};
 				std::memcpy(&duration, timeout, sizeof(duration));
@@ -2159,6 +2170,8 @@ int KYTY_SYSV_ABI UmtxOp(volatile void* address, int operation, uint64_t value,
 			    static_cast<volatile uint64_t*>(address), value, nullptr,
 			    LibKernel::KernelDispatchPendingSignalForCurrentThread));
 		case UMTX_OP_WAKE:
+			Common::DebugCounters::RecordGuestSyncEntry(
+			    Common::DebugCounters::GuestSyncEntry::UmtxAddressWake);
 			return POSIX_CALL(LibKernel::SyncOnAddress::Wake(address, static_cast<int32_t>(value)));
 		default: EXIT("Unsupported _umtx_op operation: %d\n", operation);
 	}
