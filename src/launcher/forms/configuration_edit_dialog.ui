@@ -66,7 +66,6 @@
             <item row="1" column="1">
              <widget class="QSpinBox" name="spinBox_user_id">
               <property name="toolTip"><string>Local user ID exposed to games</string></property>
-              <property name="maximum"><number>2147483647</number></property>
              </widget>
             </item>
             <item row="2" column="0">
@@ -244,6 +243,12 @@
              </widget>
             </item>
             <item>
+             <widget class="QCheckBox" name="checkBox_perf_overlay">
+              <property name="toolTip"><string>Show FPS, frame times, CPU/GPU usage, RAM and memory pressure in the game window. Press F2 (Cmd+P on macOS) to toggle it, and add Shift for the detailed view.</string></property>
+              <property name="text"><string>Show performance panel</string></property>
+             </widget>
+            </item>
+            <item>
              <widget class="QCheckBox" name="checkBox_skip_notice_screen">
               <property name="toolTip"><string>Skip startup logos and notices in supported games.</string></property>
               <property name="text"><string>Skip boot logos</string></property>
@@ -346,6 +351,16 @@
              </widget>
             </item>
            </layout>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="label_keyboard_player">
+            <property name="text"><string>Keyboard player:</string></property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QComboBox" name="comboBox_keyboard_player">
+            <property name="toolTip"><string>Gamepads fill the remaining players in connection order. Every player uses the same input mapping.</string></property>
+           </widget>
           </item>
          </layout>
         </widget>
