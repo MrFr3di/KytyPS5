@@ -562,6 +562,17 @@ add_executable(event_queue_lifetime_tests EXCLUDE_FROM_ALL
 target_link_libraries(event_queue_lifetime_tests common fmt::fmt)
 target_include_directories(event_queue_lifetime_tests PRIVATE ${inc_headers})
 
+# CPU-SYNC-002A: event flag lifecycle test and guest-safe drain protocol.
+# The test observer is compiled exclusively into this isolated target.
+add_executable(event_flag_lifecycle_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/EventFlagLifecycleTests.cpp"
+	"${KYTY_SOURCE_DIR}/kernel/eventFlag.cpp"
+	"${KYTY_SOURCE_DIR}/loader/timer.cpp"
+)
+target_compile_definitions(event_flag_lifecycle_tests PRIVATE KYTY_EVENT_FLAG_TEST_HOOKS=1)
+target_link_libraries(event_flag_lifecycle_tests common fmt::fmt)
+target_include_directories(event_flag_lifecycle_tests PRIVATE ${inc_headers})
+
 add_kyty_full_emulator_test(kernel_file_system_tests
 	"${KYTY_TESTS_DIR}/KernelFileSystemTests.cpp")
 target_link_libraries(kernel_file_system_tests ZArchive::zarchive)
@@ -669,6 +680,7 @@ if(BUILD_TESTING)
 	add_test(NAME resource_materialization COMMAND $<TARGET_FILE:resource_materialization_tests>)
 	add_test(NAME resource_tracking COMMAND $<TARGET_FILE:resource_tracking_tests>)
 	add_test(NAME event_queue_lifetime COMMAND $<TARGET_FILE:event_queue_lifetime_tests>)
+	add_test(NAME event_flag_lifecycle COMMAND $<TARGET_FILE:event_flag_lifecycle_tests>)
 	add_test(NAME kernel_file_system COMMAND $<TARGET_FILE:kernel_file_system_tests>)
 	add_test(NAME sync_on_address COMMAND $<TARGET_FILE:sync_on_address_tests>)
 	if(TARGET sync_on_address_tests_baseline)
