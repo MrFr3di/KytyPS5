@@ -573,6 +573,25 @@ add_executable(sync_on_address_tests EXCLUDE_FROM_ALL
 target_link_libraries(sync_on_address_tests common)
 target_include_directories(sync_on_address_tests PRIVATE ${inc_headers})
 
+# CPU-BASE-001: benchmark production SyncOnAddress; optional second target uses
+# the untouched frozen baseline source, extracted by the feature-only CI.
+add_executable(sync_on_address_cpu_bench EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/SyncOnAddressCpuBench.cpp"
+	"${KYTY_SOURCE_DIR}/kernel/syncOnAddress.cpp"
+)
+target_link_libraries(sync_on_address_cpu_bench common)
+target_include_directories(sync_on_address_cpu_bench PRIVATE ${inc_headers})
+
+set(KYTY_SYNC_BASELINE_SOURCE "${CMAKE_BINARY_DIR}/cpu_baseline_sync_on_address.cpp")
+if(EXISTS "${KYTY_SYNC_BASELINE_SOURCE}")
+	add_executable(sync_on_address_cpu_bench_baseline EXCLUDE_FROM_ALL
+		"${KYTY_TESTS_DIR}/SyncOnAddressCpuBench.cpp"
+		"${KYTY_SYNC_BASELINE_SOURCE}"
+	)
+	target_link_libraries(sync_on_address_cpu_bench_baseline common)
+	target_include_directories(sync_on_address_cpu_bench_baseline PRIVATE ${inc_headers})
+endif()
+
 add_executable(image_page_table_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/ImagePageTableTests.cpp"
 )
