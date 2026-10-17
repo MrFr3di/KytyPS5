@@ -51,9 +51,13 @@ in any guest-HLE source bucket.
 `PortableWaiter::condition.WaitFor()` or the Linux `FUTEX_WAIT_PRIVATE`
 syscall and measure the elapsed wall-clock duration *around the blocking
 primitive itself*. Compare against `CpuAddressRegistered`: the latter
-includes portable slow-path registrations that never parked, especially
-matching zero-timeout waits. On Linux, the registration analogue is the
-non-mismatch futex loop.
+includes portable slow-path registrations that never reached `CondVar::WaitFor`,
+especially matching zero-timeout waits **on Windows**. On Linux, the
+registration analogue is the non-mismatch futex loop, and a matching
+zero-timeout wait **does attempt one futex syscall with an immediately
+expiring timespec**. Thus `CpuAddressParkCalls` is a count of completed
+blocking-primitive **invocations**, not proof of a scheduler context switch.
+Do not compare this ratio across OSes as if the paths were identical.
 
 The instrumented portable wait path remains:
 
