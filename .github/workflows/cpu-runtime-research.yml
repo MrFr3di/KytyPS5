@@ -65,7 +65,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.vcpkg.outputs.root }}/installed/x64-windows
-          key: cpu-glslang-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.port_hash }}-tools-opt
+          key: glslang-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.port_hash }}-tools-opt
 
       - name: Install glslang shader compiler (build dependency only)
         shell: pwsh
