@@ -38,11 +38,21 @@ public:
 		return Wait(bits, wait_mode, clear_mode, result, &micros);
 	}
 
+#ifdef KYTY_EVENT_FLAG_TEST_HOOKS
+	int GetWaitingThreadCountForTests() {
+		Common::LockGuard lock(m_mutex);
+		return m_waiting_threads;
+	}
+#endif
+
 private:
 	enum class Status { Set, Canceled, Deleted };
 
 	Common::Mutex   m_mutex;
 	Common::CondVar m_cond_var;
+	// Separate from guest wait notifications: wake drainers only when all
+	// registered waiters have released their reference to this object.
+	Common::CondVar m_drained_cond_var;
 	Status          m_status          = Status::Set;
 	int             m_waiting_threads = 0;
 	std::string     m_name;
@@ -92,9 +102,9 @@ KernelEventFlagPrivate::~KernelEventFlagPrivate() {
 	m_cond_var.SignalAll();
 
 	while (m_waiting_threads > 0) {
-		m_mutex.Unlock();
-		Common::Thread::SleepMicro(10);
-		m_mutex.Lock();
+		// Condition waits atomically release/reacquire m_mutex; the final
+		// waiter notifies while holding this lock, so no wake can be lost.
+		m_drained_cond_var.Wait(&m_mutex);
 	}
 }
 
@@ -143,6 +153,9 @@ KernelEventFlagPrivate::Result KernelEventFlagPrivate::Wait(uint64_t bits, WaitM
 		}
 
 		m_waiting_threads--;
+		if (m_waiting_threads == 0) {
+			m_drained_cond_var.SignalAll();
+		}
 
 		elapsed = static_cast<uint32_t>(t.GetTimeS() * 1000000.0);
 
@@ -228,9 +241,9 @@ void KernelEventFlagPrivate::Cancel(uint64_t bits, int* num_waiting_threads) {
 	m_cond_var.SignalAll();
 
 	while (m_waiting_threads > 0) {
-		m_mutex.Unlock();
-		Common::Thread::SleepMicro(10);
-		m_mutex.Lock();
+		// Condition waits atomically release/reacquire m_mutex; the final
+		// waiter notifies while holding this lock, so no wake can be lost.
+		m_drained_cond_var.Wait(&m_mutex);
 	}
 
 	m_status = Status::Set;
@@ -376,5 +389,12 @@ int KYTY_SYSV_ABI KernelCancelEventFlag(KernelEventFlag ef, uint64_t set_pattern
 
 	return OK;
 }
+
+#ifdef KYTY_EVENT_FLAG_TEST_HOOKS
+// Test-only observer, absent from normal emulator compilation.
+int KernelEventFlagWaiterCountForTests(KernelEventFlag ef) {
+	return ef->GetWaitingThreadCountForTests();
+}
+#endif
 
 } // namespace Libs::LibKernel::EventFlag
