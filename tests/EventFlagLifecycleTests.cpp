@@ -3,6 +3,7 @@
 // The observer never modifies the wait-state or participates in the wake protocol.
 #include "kernel/eventFlag.h"
 #include "libs/errno.h"
+#include "common/threads.h"
 
 #include <atomic>
 #include <chrono>
@@ -27,6 +28,11 @@ void Check(bool value, const char* what) {
         std::fprintf(stderr, "EventFlagLifecycleTests failed: %s\n", what);
         std::abort();
     }
+}
+
+std::atomic<int> g_guest_signal_callbacks{0};
+void TrackGuestSignalPoll() {
+    g_guest_signal_callbacks.fetch_add(1, std::memory_order_relaxed);
 }
 
 constexpr int kWaiters = 4;
@@ -65,6 +71,33 @@ void TestZeroTimeoutAndState() {
     Check(EventFlag::KernelPollEventFlag(ef, 1, 0x01, &result) == KERNEL_ERROR_EBUSY,
           "clear bit restores busy poll");
     Check(EventFlag::KernelDeleteEventFlag(ef) == OK, "delete unused flag");
+}
+
+void TestGuestSignalSafePoint() {
+    // Guest-side waits must retain their normal signal polling behavior.
+    // Only the host-side cancellation/deletion drain bypasses the callback.
+    g_guest_signal_callbacks.store(0, std::memory_order_relaxed);
+    Common::CondVar::SetWaitPollCallback(TrackGuestSignalPoll);
+    auto ef = NewFlag();
+    int result = KERNEL_ERROR_ETIMEDOUT;
+    std::thread waiter([&] {
+        result = EventFlag::KernelWaitEventFlag(ef, 1, 0x01, nullptr, nullptr);
+    });
+    WaitUntilRegistered(ef, 1);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (g_guest_signal_callbacks.load(std::memory_order_relaxed) < 2 &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+    }
+    Check(EventFlag::KernelSetEventFlag(ef, 1) == OK,
+          "set releases guest waiter with signal callback installed");
+    waiter.join();
+    Common::CondVar::SetWaitPollCallback(nullptr);
+    Check(result == OK, "guest waiter still wakes normally");
+    Check(g_guest_signal_callbacks.load(std::memory_order_relaxed) >= 2,
+          "guest wait continues polling guest signals");
+    Check(EventFlag::KernelDeleteEventFlag(ef) == OK,
+          "delete flag after guest signal safe point");
 }
 
 void TestCancelRegisteredWaiters() {
@@ -128,6 +161,7 @@ void TestDeleteRegisteredWaiters() {
 
 int main() {
     TestZeroTimeoutAndState();
+    TestGuestSignalSafePoint();
     TestCancelRegisteredWaiters();
     TestDeleteRegisteredWaiters();
     std::puts("EventFlagLifecycleTests: all passed");
