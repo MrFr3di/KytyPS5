@@ -102,6 +102,12 @@ jobs:
         run: |
           ctest --test-dir _Build/cpu-win --no-tests=error --output-on-failure --timeout 120 -R "^(sync_on_address|sync_on_address_baseline|event_queue_lifetime|event_flag_lifecycle|semaphore_lifecycle)$"
 
+      - name: Repeat native semaphore race oracle on the hosted Windows runner
+        shell: pwsh
+        run: |
+          ctest --test-dir _Build/cpu-win --no-tests=error --output-on-failure --timeout 120 --repeat until-fail:10 -R "^semaphore_lifecycle$" 2>&1 | Tee-Object -FilePath cpu-semaphore-stress.log
+          if ($LASTEXITCODE -ne 0) { throw "semaphore race-stress gate failed" }
+
       - name: Matched baseline/candidate ABBA measurements (not an FPS claim)
         shell: pwsh
         run: |
@@ -149,4 +155,5 @@ jobs:
             cpu-sync-candidate-first.csv
             cpu-sync-candidate-second.csv
             cpu-sync-summary.csv
+            cpu-semaphore-stress.log
             _Build/cpu-win/Testing/Temporary/LastTest.log
