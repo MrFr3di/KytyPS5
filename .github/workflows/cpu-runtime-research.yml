@@ -1,0 +1,132 @@
+name: KYTY-CPU-001 Windows x64 CPU baseline and sync research
+
+on:
+  push:
+    branches:
+      - perf/cpu-runtime-research
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kyty-cpu-001-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CPU_BASE_SHA: b82512be065b2fa2432cfa4e5a8c779604236299
+
+jobs:
+  windows-cpu:
+    name: Windows 2022 clang-cl CPU correctness and paired benchmark
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Checkout CPU feature branch (no persistent credentials)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Initialize Visual Studio clang-cl toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Locate vcpkg
+        id: vcpkg
+        shell: pwsh
+        run: |
+          $root = Split-Path (Get-Command vcpkg).Source
+          $portHash = (Get-FileHash "$root/ports/glslang/vcpkg.json" -Algorithm SHA256).Hash
+          "root=$root" >> $env:GITHUB_OUTPUT
+          "port_hash=$($portHash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Cache glslang tools
+        id: glslang_cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.vcpkg.outputs.root }}/installed/x64-windows
+          key: cpu-glslang-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.port_hash }}-tools-opt
+
+      - name: Install glslang shader compiler (build dependency only)
+        shell: pwsh
+        run: |
+          $root = "${{ steps.vcpkg.outputs.root }}"
+          if ("${{ steps.glslang_cache.outputs.cache-hit }}" -ne "true") {
+            vcpkg install glslang[tools,opt]:x64-windows
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          "$root/installed/x64-windows/tools/glslang" >> $env:GITHUB_PATH
+
+      - name: Extract exact frozen base production source for same-runner comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _Build/cpu-win
+          git cat-file -e "${CPU_BASE_SHA}^{commit}"
+          git show "${CPU_BASE_SHA}:src/kernel/syncOnAddress.cpp" > _Build/cpu-win/cpu_baseline_sync_on_address.cpp
+          test -s _Build/cpu-win/cpu_baseline_sync_on_address.cpp
+          echo "BASELINE=${CPU_BASE_SHA} CANDIDATE=${GITHUB_SHA}"
+
+      - name: Configure CPU feature branch (launcher disabled)
+        shell: cmd
+        run: |
+          cmake -S . -B _Build/cpu-win -G Ninja -DCMAKE_BUILD_TYPE=Release -DKYTY_BUILD_LAUNCHER=OFF -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl
+
+      - name: Build production-source synchronization tests and isolated comparator
+        shell: cmd
+        run: |
+          cmake --build _Build/cpu-win --target sync_on_address_tests event_queue_lifetime_tests sync_on_address_cpu_bench sync_on_address_cpu_bench_baseline --parallel 3
+
+      - name: CPU correctness gate (includes races, timeouts and wake counts)
+        shell: cmd
+        run: |
+          ctest --test-dir _Build/cpu-win --output-on-failure --timeout 120 -R "^(sync_on_address|event_queue_lifetime)$"
+
+      - name: Matched baseline/candidate ABBA measurements (not an FPS claim)
+        shell: pwsh
+        run: |
+          "sha=$env:GITHUB_SHA" | Set-Content -Path cpu-runner-details.txt
+          "baseline=$env:CPU_BASE_SHA" | Add-Content cpu-runner-details.txt
+          "runner=$env:RUNNER_NAME" | Add-Content cpu-runner-details.txt
+          "os=$env:RUNNER_OS arch=$env:RUNNER_ARCH" | Add-Content cpu-runner-details.txt
+          Get-CimInstance Win32_Processor | Select-Object Name,NumberOfLogicalProcessors | Out-String | Add-Content cpu-runner-details.txt
+          clang-cl --version | Select-Object -First 1 | Add-Content cpu-runner-details.txt
+          $base = ".\_Build\cpu-win\sync_on_address_cpu_bench_baseline.exe"
+          $candidate = ".\_Build\cpu-win\sync_on_address_cpu_bench.exe"
+          & $base > cpu-sync-base-first.csv
+          if ($LASTEXITCODE -ne 0) { throw "baseline first failed" }
+          & $candidate > cpu-sync-candidate-first.csv
+          if ($LASTEXITCODE -ne 0) { throw "candidate first failed" }
+          & $candidate > cpu-sync-candidate-second.csv
+          if ($LASTEXITCODE -ne 0) { throw "candidate second failed" }
+          & $base > cpu-sync-base-second.csv
+          if ($LASTEXITCODE -ne 0) { throw "baseline second failed" }
+          python scripts/analyze_cpu_sync_benchmark.py cpu-sync-base-first.csv cpu-sync-candidate-first.csv cpu-sync-candidate-second.csv cpu-sync-base-second.csv --baseline-sha $env:CPU_BASE_SHA --candidate-sha $env:GITHUB_SHA > cpu-sync-summary.csv
+          if ($LASTEXITCODE -ne 0) { throw "synthetic benchmark analysis failed" }
+          Get-Content cpu-sync-summary.csv
+          if (-not (Select-String -Path cpu-sync-summary.csv -SimpleMatch 'CPU_SYNC_001_ANALYZER_PASS')) { throw "missing CPU analysis acceptance marker" }
+
+      - name: Compile entire headless emulator against tested CPU sources
+        shell: cmd
+        run: |
+          cmake --build _Build/cpu-win --target kyty_emulator --parallel 3
+
+      - name: Headless emulator smoke gate
+        shell: cmd
+        run: |
+          ctest --test-dir _Build/cpu-win --output-on-failure --timeout 60 -R "^emulator_user_name_cli$"
+
+      - name: Preserve exact runner and raw synthetic measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyty-cpu-001-windows-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            cpu-runner-details.txt
+            cpu-sync-base-first.csv
+            cpu-sync-base-second.csv
+            cpu-sync-candidate-first.csv
+            cpu-sync-candidate-second.csv
+            cpu-sync-summary.csv
