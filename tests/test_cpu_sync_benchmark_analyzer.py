@@ -69,6 +69,16 @@ class CpuSyncAnalyzerTests(unittest.TestCase):
         write_csv(self.files[3], {case: 350.0 for case in CASES})
         self.assertEqual(self.run_analysis().count("NOISY_SYNTHETIC"), 4)
 
+    def test_flags_within_process_jitter_even_if_medians_match(self):
+        # Constant medians across ABBA calls do not imply a stable runner.
+        write_csv(self.files[1], {case: 100.0 for case in CASES},
+                  corrupt=("mismatch32", 5, "180"))
+        text = self.run_analysis()
+        row = next(line for line in text.splitlines()
+                   if line.startswith("mismatch32,"))
+        self.assertTrue(row.endswith(",NOISY_SYNTHETIC"), row)
+        self.assertEqual(text.count("NOISY_SYNTHETIC"), 1)
+
     def test_rejects_nonfinite_measurement(self):
         write_csv(self.files[1], {case: 100.0 for case in CASES},
                   corrupt=("mismatch32", 4, "nan"))
