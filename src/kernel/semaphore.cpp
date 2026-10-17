@@ -1,6 +1,7 @@
 #include "kernel/semaphore.h"
 
 #include "common/assert.h"
+#include "common/debugCounters.h"
 #include "common/logging/log.h"
 #include "common/stringUtils.h"
 #include "common/threads.h"
@@ -101,10 +102,15 @@ KernelSemaPrivate::~KernelSemaPrivate() {
 
 	m_cond_var.SignalAll();
 
-	while (!m_waiting_threads.empty()) {
-		// Avoid host-side busy waiting; the final waiter signals under m_mutex.
-		// WaitFor avoids invoking the guest poll callback in CondVar::Wait.
-		(void)m_drained_cond_var.WaitFor(&m_mutex, 1000000);
+	if (!m_waiting_threads.empty()) {
+		Common::DebugCounters::ScopedTimer drain(
+		    Common::DebugCounters::Counter::CpuSemaphoreDrainCalls,
+		    Common::DebugCounters::Counter::CpuSemaphoreDrainNs);
+		while (!m_waiting_threads.empty()) {
+			// Notification is sent by last registered waiter under m_mutex.
+			// WaitFor avoids guest signal polling in host-only draining.
+			(void)m_drained_cond_var.WaitFor(&m_mutex, 1000000);
+		}
 	}
 }
 
@@ -202,6 +208,7 @@ KernelSemaPrivate::Result KernelSemaPrivate::Wait(int need_count, uint32_t* ptr_
 	if (m_status == Status::Deleted) {
 		return Result::Deleted;
 	}
+	Common::DebugCounters::Add(Common::DebugCounters::Counter::CpuSemaphoreWaitCalls);
 
 	uint32_t micros     = 0;
 	bool     infinitely = true;
@@ -233,6 +240,9 @@ KernelSemaPrivate::Result KernelSemaPrivate::Wait(int need_count, uint32_t* ptr_
 	waiter.priority   = (m_fifo_order ? 0 : Libs::LibKernel::PthreadGetCurrentPriorityForKernel());
 	waiter.need_count = need_count;
 	AddWaiter(&waiter);
+	Common::DebugCounters::ScopedTimer blocked(
+	    Common::DebugCounters::Counter::CpuSemaphoreBlocked,
+	    Common::DebugCounters::Counter::CpuSemaphoreBlockedNs);
 
 	while (!waiter.ready) {
 		if ((elapsed >= micros && !infinitely)) {
