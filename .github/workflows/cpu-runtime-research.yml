@@ -181,3 +181,160 @@ jobs:
             cpu-profile-overhead-summary.csv
             cpu-semaphore-stress.log
             _Build/cpu-win/Testing/Temporary/LastTest.log
+
+  linux-cpu:
+    name: Ubuntu 24.04 clang x64 CPU correctness and profile overhead
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout identical CPU branch SHA with recursive dependencies
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify exact Linux checkout and immutable CPU baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/perf/cpu-runtime-research"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$CPU_BASE_SHA" = "b82512be065b2fa2432cfa4e5a8c779604236299"
+          git cat-file -e "$CPU_BASE_SHA^{commit}"
+          test "$GITHUB_SHA" != "$CPU_BASE_SHA"
+          echo "LINUX_CPU_BRANCH_PROVENANCE_PASS: $GITHUB_SHA"
+
+      - name: Install Linux dependencies from the fork main's Linux workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            clang glslang-tools lld ninja-build pkg-config \
+            libasound2-dev libdbus-1-dev libgl1-mesa-dev libpulse-dev \
+            libudev-dev libwayland-dev libx11-dev libxcursor-dev \
+            libxext-dev libxfixes-dev libxi-dev libxkbcommon-dev \
+            libxrandr-dev libxss-dev libxtst-dev wayland-protocols
+          clang++ --version
+          glslangValidator --version
+
+      - name: Run both strict CSV analyzers' unit tests on Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_cpu_sync_benchmark_analyzer.py' -v
+          python3 -m unittest discover -s tests -p 'test_cpu_profile_overhead_analyzer.py' -v
+
+      - name: Extract original production baseline on Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _Build/cpu-linux
+          git show "$CPU_BASE_SHA:src/kernel/syncOnAddress.cpp" > _Build/cpu-linux/cpu_baseline_sync_on_address.cpp
+          test -s _Build/cpu-linux/cpu_baseline_sync_on_address.cpp
+
+      - name: Configure Linux CPU research with no Qt launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B _Build/cpu-linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DKYTY_BUILD_LAUNCHER=OFF -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++
+
+      - name: Build actual production-source CPU oracles and benchmark on Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build _Build/cpu-linux --target \
+            sync_on_address_tests sync_on_address_tests_baseline \
+            event_queue_lifetime_tests event_flag_lifecycle_tests \
+            semaphore_lifecycle_tests cpu_sync_entry_counters_tests \
+            sync_on_address_cpu_bench sync_on_address_cpu_bench_baseline --parallel 3
+
+      - name: Linux kernel and baseline correctness CTest gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir _Build/cpu-linux --no-tests=error \
+            --output-on-failure --timeout 120 \
+            -R '^(sync_on_address|sync_on_address_baseline|event_queue_lifetime|event_flag_lifecycle|semaphore_lifecycle|cpu_sync_entry_counters)$'
+
+      - name: Repeat native semaphore race oracle on Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir _Build/cpu-linux --no-tests=error --output-on-failure \
+            --timeout 120 --repeat until-fail:10 -R '^semaphore_lifecycle$' \
+            2>&1 | tee cpu-linux-semaphore-stress.log
+
+      - name: Linux baseline/candidate same-runner ABBA synthetic comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sha=%s\nbaseline=%s\nrunner=%s\nos=%s\n' \
+            "$GITHUB_SHA" "$CPU_BASE_SHA" "$RUNNER_NAME" "$RUNNER_OS" > cpu-linux-runner-details.txt
+          uname -a >> cpu-linux-runner-details.txt
+          clang++ --version | head -n 1 >> cpu-linux-runner-details.txt
+          base='_Build/cpu-linux/sync_on_address_cpu_bench_baseline'
+          candidate='_Build/cpu-linux/sync_on_address_cpu_bench'
+          "$base" > cpu-linux-sync-base-first.csv
+          "$candidate" > cpu-linux-sync-candidate-first.csv
+          "$candidate" > cpu-linux-sync-candidate-second.csv
+          "$base" > cpu-linux-sync-base-second.csv
+          python3 scripts/analyze_cpu_sync_benchmark.py \
+            cpu-linux-sync-base-first.csv cpu-linux-sync-candidate-first.csv \
+            cpu-linux-sync-candidate-second.csv cpu-linux-sync-base-second.csv \
+            --baseline-sha "$CPU_BASE_SHA" --candidate-sha "$GITHUB_SHA" \
+            | tee cpu-linux-sync-summary.csv
+          grep -q 'CPU_SYNC_001_ANALYZER_PASS' cpu-linux-sync-summary.csv
+
+      - name: Linux opt-in profiler overhead OFF-ON-ON-OFF
+        shell: bash
+        run: |
+          set -euo pipefail
+          bench='_Build/cpu-linux/sync_on_address_cpu_bench'
+          "$bench" --profile-off > cpu-linux-profile-off-first.csv
+          "$bench" --profile-on > cpu-linux-profile-on-first.csv
+          "$bench" --profile-on > cpu-linux-profile-on-second.csv
+          "$bench" --profile-off > cpu-linux-profile-off-second.csv
+          python3 scripts/analyze_cpu_profile_overhead.py \
+            cpu-linux-profile-off-first.csv cpu-linux-profile-on-first.csv \
+            cpu-linux-profile-on-second.csv cpu-linux-profile-off-second.csv \
+            --commit-sha "$GITHUB_SHA" --platform linux \
+            | tee cpu-linux-profile-overhead-summary.csv
+          grep -q 'CPU_PROFILE_001C_ANALYZER_PASS' cpu-linux-profile-overhead-summary.csv
+
+      - name: Compile complete Linux headless emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build _Build/cpu-linux --target kyty_emulator --parallel 3
+
+      - name: Linux headless emulator CLI smoke gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir _Build/cpu-linux --no-tests=error \
+            --output-on-failure --timeout 60 -R '^emulator_user_name_cli$'
+
+      - name: Preserve Linux CI and raw profiler overhead evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyty-cpu-001-linux-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            cpu-linux-runner-details.txt
+            cpu-linux-sync-base-first.csv
+            cpu-linux-sync-candidate-first.csv
+            cpu-linux-sync-candidate-second.csv
+            cpu-linux-sync-base-second.csv
+            cpu-linux-sync-summary.csv
+            cpu-linux-profile-off-first.csv
+            cpu-linux-profile-on-first.csv
+            cpu-linux-profile-on-second.csv
+            cpu-linux-profile-off-second.csv
+            cpu-linux-profile-overhead-summary.csv
+            cpu-linux-semaphore-stress.log
+            _Build/cpu-linux/Testing/Temporary/LastTest.log
