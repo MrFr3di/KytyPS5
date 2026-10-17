@@ -451,6 +451,31 @@ void DrawFramesAndCpu(const Snapshot& shown, vk::Extent2D extent) {
 		    Fmt("%.0f/s  (%llu total)", unresolved,
 		        static_cast<unsigned long long>(Total(shown, Counter::UnresolvedImportCalls))),
 		    unresolved > 0.0 ? MEDIUM : GOOD);
+		// CPU-PROFILE-001A uses the upstream opt-in debug counter snapshots.
+		// Wall waits overlap across host threads: ms/s is NOT CPU busy time.
+		Row("Address wait calls",
+		    Fmt("%.0f/s  (%.0f/s value already changed)",
+		        Rate(shown, Counter::CpuAddressWaitCalls),
+		        Rate(shown, Counter::CpuAddressImmediateMismatch)));
+		Row("Address registered waits",
+		    Fmt("%.0f/s  (%.1f ms/s wall)",
+		        Rate(shown, Counter::CpuAddressRegistered),
+		        Rate(shown, Counter::CpuAddressRegisteredNs) / 1e6));
+		Row("Native semaphore waits",
+		    Fmt("%.0f/s  (%.0f/s blocked, %.1f ms/s wall)",
+		        Rate(shown, Counter::CpuSemaphoreWaitCalls),
+		        Rate(shown, Counter::CpuSemaphoreBlocked),
+		        Rate(shown, Counter::CpuSemaphoreBlockedNs) / 1e6));
+		Row("Event flag parks",
+		    Fmt("%.0f/s  (%.1f ms/s wall)",
+		        Rate(shown, Counter::CpuEventFlagParks),
+		        Rate(shown, Counter::CpuEventFlagParkNs) / 1e6));
+		Row("Native object drains",
+		    Fmt("%.0f/s sem + %.0f/s flag  (%.1f ms/s wall)",
+		        Rate(shown, Counter::CpuSemaphoreDrainCalls),
+		        Rate(shown, Counter::CpuEventFlagDrainCalls),
+		        (Rate(shown, Counter::CpuSemaphoreDrainNs) +
+		         Rate(shown, Counter::CpuEventFlagDrainNs)) / 1e6));
 		ImGui::EndTable();
 	}
 }
