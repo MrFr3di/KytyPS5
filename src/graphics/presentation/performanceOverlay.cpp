@@ -461,6 +461,19 @@ void DrawFramesAndCpu(const Snapshot& shown, vk::Extent2D extent) {
 		    Fmt("%.0f/s  (%.1f ms/s wall)",
 		        Rate(shown, Counter::CpuAddressRegistered),
 		        Rate(shown, Counter::CpuAddressRegisteredNs) / 1e6));
+		Row("Guest wait HLE calls",
+		    Fmt("%.0f/s legacy + %.0f/s typed + %.0f/s umtx",
+		        Rate(shown, Counter::CpuGuestLegacyAddressWaits),
+		        Rate(shown, Counter::CpuGuestTypedAddressWaits),
+		        Rate(shown, Counter::CpuGuestUmtxAddressWaits)));
+		Row("Guest wake HLE calls",
+		    Fmt("%.0f/s kernel + %.0f/s umtx",
+		        Rate(shown, Counter::CpuGuestKernelAddressWakes),
+		        Rate(shown, Counter::CpuGuestUmtxAddressWakes)));
+		Row("Actual address parks",
+		    Fmt("%.0f/s  (%.1f ms/s wall)",
+		        Rate(shown, Counter::CpuAddressParkCalls),
+		        Rate(shown, Counter::CpuAddressParkNs) / 1e6));
 		Row("Native semaphore waits",
 		    Fmt("%.0f/s  (%.0f/s blocked, %.1f ms/s wall)",
 		        Rate(shown, Counter::CpuSemaphoreWaitCalls),
