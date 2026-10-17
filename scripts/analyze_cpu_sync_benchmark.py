@@ -51,7 +51,8 @@ def main():
         args.baseline_first, args.candidate_first,
         args.candidate_second, args.baseline_second)]
     print("case,baseline_ns,candidate_ns,baseline_over_candidate,"
-          "baseline_spread_pct,candidate_spread_pct,verdict")
+          "baseline_between_run_pct,candidate_between_run_pct,"
+          "baseline_within_run_pct,candidate_within_run_pct,verdict")
     for case in CASES:
         rows = [file[case] for file in samples]
         if len({r[0] for r in rows}) != 1:
@@ -60,11 +61,17 @@ def main():
         candidate = statistics.median((rows[1][1], rows[2][1]))
         base_spread = 100 * abs(rows[0][1] - rows[3][1]) / base
         cand_spread = 100 * abs(rows[1][1] - rows[2][1]) / candidate
-        # Baseline must actually be an isolated source version; when the
-        # branch is pristine, equal SHAs are expected and still useful.
-        noisy = max(base_spread, cand_spread) > 20
+        # Each invocation contains nine measured rounds. A stable median
+        # across two processes can still hide a highly volatile runner.
+        # Distinguish intra-process and inter-process jitter explicitly.
+        within = [100 * (row[3] - row[2]) / row[1] for row in rows]
+        baseline_within = max(within[0], within[3])
+        candidate_within = max(within[1], within[2])
+        noisy = max(base_spread, cand_spread,
+                    baseline_within, candidate_within) > 20
         print(f"{case},{base:.3f},{candidate:.3f},{base/candidate:.3f},"
               f"{base_spread:.1f},{cand_spread:.1f},"
+              f"{baseline_within:.1f},{candidate_within:.1f},"
               f"{'NOISY_SYNTHETIC' if noisy else 'SYNTHETIC_ONLY'}")
     print(f"baseline_sha,{args.baseline_sha}")
     print(f"candidate_sha,{args.candidate_sha}")
