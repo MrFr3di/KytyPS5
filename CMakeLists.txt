@@ -594,6 +594,8 @@ add_executable(sync_on_address_tests EXCLUDE_FROM_ALL
 )
 target_link_libraries(sync_on_address_tests common)
 target_include_directories(sync_on_address_tests PRIVATE ${inc_headers})
+# Baseline compiles the same test source without the candidate-only telemetry checks.
+target_compile_definitions(sync_on_address_tests PRIVATE KYTY_CPU_PROFILE_TEST_COUNTERS=1)
 
 # CPU-BASE-001: benchmark production SyncOnAddress; optional second target uses
 # the untouched frozen baseline source, extracted by the feature-only CI.
