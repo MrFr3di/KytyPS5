@@ -94,6 +94,30 @@ A green result must be observed on the exact candidate HEAD before accepting.
 GitHub Actions queue/enablement and workflow discovery are independent
 environment gates; an absent run is **NOT VERIFIED**, never implicit success.
 
+### Fallback launch path without writing main
+
+GitHub's `workflow_dispatch` UI is available only to workflows registered on
+the default branch. The new CPU-specific workflow exists solely on the CPU
+feature branch, so its own manual Run button is **not** a reliable launch
+mechanism. A `push` trigger should work for non-default branch workflows, but
+no runs have appeared after connector commits; the cause is still unverified.
+
+The existing `.github/workflows/build.yml` **is** registered on `main` and
+already exposes `workflow_dispatch`. Its feature-branch version now contains
+a `cpu-research` reusable-workflow caller. Select `Build and Release KytyPS5`
+in Actions, choose `Run workflow`, and choose ref
+`perf/cpu-runtime-research`. On that ref, `metadata` is skipped and all
+release/normal platform jobs depend on it, so only the CPU research job
+executes. The reusable target `.github/workflows/cpu-runtime-research.yml`
+accepts `workflow_call`; all code is checked out from the same feature ref.
+The original `main` workflow file has not been modified.
+
+The dedicated job first executes
+`python -m unittest discover -s tests -p test_cpu_sync_benchmark_analyzer.py`
+to validate the evidence parser and its rejection of corrupt/duplicate,
+nonfinite or inconsistent records. No full-build work should precede this
+lightweight validation.
+
 ## Next decision
 
 On green CI: inspect mismatch ratio, dispersion, timeout negatives and race
