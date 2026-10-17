@@ -146,14 +146,16 @@ void TestSignalOrdering(int attr, int priority0, int priority1, int winner) {
     threads.emplace_back([&] {
         g_priority = priority0;
         results[0] = Sem::KernelWaitSema(sem, 1, nullptr);
-        if (first.exchange(0) == -1) {}
+        int unset = -1;
+        (void)first.compare_exchange_strong(unset, 0);
         done.fetch_add(1);
     });
     Registered(sem, 1);
     threads.emplace_back([&] {
         g_priority = priority1;
         results[1] = Sem::KernelWaitSema(sem, 1, nullptr);
-        if (first.exchange(1) == -1) {}
+        int unset = -1;
+        (void)first.compare_exchange_strong(unset, 1);
         done.fetch_add(1);
     });
     Registered(sem, 2);
