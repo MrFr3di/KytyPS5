@@ -30,6 +30,12 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Verify CPU benchmark analyzer and evidence rejection
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_cpu_sync_benchmark_analyzer.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Initialize Visual Studio clang-cl toolchain
         uses: ilammy/msvc-dev-cmd@v1
 
