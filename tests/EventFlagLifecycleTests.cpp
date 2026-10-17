@@ -4,6 +4,7 @@
 #include "kernel/eventFlag.h"
 #include "libs/errno.h"
 #include "common/threads.h"
+#include "common/debugCounters.h"
 
 #include <atomic>
 #include <chrono>
@@ -157,6 +158,30 @@ void TestDeleteRegisteredWaiters() {
         }
     }
 }
+void TestProfileCountersOptIn() {
+    using namespace Common::DebugCounters;
+    const auto before = Get(Counter::CpuEventFlagParks);
+    auto ef = NewFlag();
+    SetEnabled(true);
+    int result = -1;
+    std::thread waiter([&] {
+        result = EventFlag::KernelWaitEventFlag(ef, 1, 0x01, nullptr, nullptr);
+    });
+    WaitUntilRegistered(ef, 1);
+    Check(EventFlag::KernelSetEventFlag(ef, 1) == OK,
+          "profiled event flag set releases registered waiter");
+    waiter.join();
+    Check(result == OK, "profiled event flag wake succeeded");
+    Check(Get(Counter::CpuEventFlagParks) > before,
+          "event flag profiler counts actual guest park");
+    SetEnabled(false);
+    const auto frozen = Get(Counter::CpuEventFlagParks);
+    Check(EventFlag::KernelDeleteEventFlag(ef) == OK,
+          "delete after profiling ends");
+    Check(Get(Counter::CpuEventFlagParks) == frozen,
+          "disabled event flag profiling remains inactive");
+}
+
 } // namespace
 
 int main() {
@@ -164,6 +189,7 @@ int main() {
     TestGuestSignalSafePoint();
     TestCancelRegisteredWaiters();
     TestDeleteRegisteredWaiters();
+    TestProfileCountersOptIn();
     std::puts("EventFlagLifecycleTests: all passed");
     return 0;
 }
