@@ -654,6 +654,19 @@ jobs:
         run: |
           cmake --build _Build/windows-range --target kyty_emulator --parallel 3
 
+      - name: CPU-SYNC-001 Windows address-wait correctness and latency
+        shell: pwsh
+        run: |
+          cmake --build _Build/windows-range --target sync_on_address_tests sync_on_address_cpu_bench event_queue_lifetime_tests --parallel 3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir _Build/windows-range --output-on-failure --timeout 60 -R "^(sync_on_address|event_queue_lifetime)$"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\\_Build\\windows-range\\sync_on_address_cpu_bench.exe > sync-on-address-cpu.csv
+          if ($LASTEXITCODE -ne 0) { Get-Content sync-on-address-cpu.csv; exit $LASTEXITCODE }
+          if (-not (Select-String -Path sync-on-address-cpu.csv -SimpleMatch 'CPU_SYNC_001_PASS')) {
+            throw 'CPU-SYNC-001 benchmark or signal-safe-point validation failed'
+          }
+
       - name: Headless emulator CLI smoke test
         shell: cmd
         run: |
@@ -678,6 +691,7 @@ jobs:
           name: texture-range-index-windows-${{ github.sha }}
           path: |
             runner-details.txt
+            sync-on-address-cpu.csv
             range-index-bench.csv
             range-hybrid-bench.csv
             range-allocation.csv
