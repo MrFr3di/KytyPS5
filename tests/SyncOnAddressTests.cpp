@@ -332,8 +332,17 @@ void TestProfileCountersOptIn() {
   Check(Wait32(&word, 0, &zero) == OK, "profiled mismatch succeeds");
   Check(Wait32(&word, 9, &zero) == Libs::LibKernel::KERNEL_ERROR_ETIMEDOUT,
         "profiled registered zero-timeout wait expires");
+  // Linux directly issues FUTEX_WAIT_PRIVATE with a zero timespec, unlike
+  // the portable Windows path which returns before calling CondVar::WaitFor.
+  // ParkCalls counts attempts, not proof of actual scheduler descheduling.
+#if KYTY_PLATFORM == KYTY_PLATFORM_LINUX && !defined(__APPLE__)
+  Check(Get(Counter::CpuAddressParkCalls) == before_parks + 1,
+        "Linux matching zero-timeout wait attempts one futex syscall");
+#else
   Check(Get(Counter::CpuAddressParkCalls) == before_parks,
-        "matching zero-timeout registration is not a real park");
+        "portable zero-timeout registration skips condition wait");
+#endif
+  const auto after_zero_timeout_parks = Get(Counter::CpuAddressParkCalls);
   uint32_t finite_timeout = 3000;
   Check(Wait32(&word, 9, &finite_timeout) == Libs::LibKernel::KERNEL_ERROR_ETIMEDOUT,
         "finite matching wait parks then times out");
@@ -343,8 +352,8 @@ void TestProfileCountersOptIn() {
         "profile counts only immediate mismatch");
   Check(Get(Counter::CpuAddressRegistered) == before_registered + 2,
         "profile counts zero-timeout and finite registered paths");
-  Check(Get(Counter::CpuAddressParkCalls) > before_parks,
-        "actual finite wait records condition park");
+  Check(Get(Counter::CpuAddressParkCalls) > after_zero_timeout_parks,
+        "positive finite matching wait attempts a futex or condition park");
   Check(Get(Counter::CpuAddressParkNs) > 0,
         "actual finite wait records positive wall duration");
   SetEnabled(false);
