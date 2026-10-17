@@ -95,12 +95,12 @@ jobs:
       - name: Build frozen and candidate synchronization oracles plus benchmarks
         shell: cmd
         run: |
-          cmake --build _Build/cpu-win --target sync_on_address_tests sync_on_address_tests_baseline event_queue_lifetime_tests sync_on_address_cpu_bench sync_on_address_cpu_bench_baseline --parallel 3
+          cmake --build _Build/cpu-win --target sync_on_address_tests sync_on_address_tests_baseline event_queue_lifetime_tests event_flag_lifecycle_tests sync_on_address_cpu_bench sync_on_address_cpu_bench_baseline --parallel 3
 
       - name: CPU differential correctness gate (baseline and candidate)
         shell: cmd
         run: |
-          ctest --test-dir _Build/cpu-win --no-tests=error --output-on-failure --timeout 120 -R "^(sync_on_address|sync_on_address_baseline|event_queue_lifetime)$"
+          ctest --test-dir _Build/cpu-win --no-tests=error --output-on-failure --timeout 120 -R "^(sync_on_address|sync_on_address_baseline|event_queue_lifetime|event_flag_lifecycle)$"
 
       - name: Matched baseline/candidate ABBA measurements (not an FPS claim)
         shell: pwsh
