@@ -47,7 +47,11 @@ intervals or proof of statistical significance. This is a calibration,
 not a statistically powered field benchmark.
 
 The microbenchmark's zero-timeout cases include the normal path's full
-registry/futex overhead where applicable. The mismatch fast paths can be
+registry/futex overhead where applicable. On Linux, a matching zero-timeout
+wait still performs one `FUTEX_WAIT_PRIVATE` syscall with timespec zero,
+whereas Windows portable code never reaches `CondVar::WaitFor` in that
+case. Therefore `CpuAddressParkCalls` counts **completed calls to the
+platform wait primitive**, not confirmed descheduling or sleeping threads. The mismatch fast paths can be
 only a few nanoseconds and are susceptible to timer resolution, compiler
 inlining/optimization, and DVFS, so unusually high ratios should be treated
 as a diagnostic flag rather than an estimated game speedup.
@@ -88,6 +92,8 @@ value-mismatch fast check; the Windows change targeted the portable path.
   matching zero-timeout paths that never park.
 - `CpuAddressParkCalls` counts *completed* wait-primitive invocations;
   not every futex or CondVar attempt actually triggers a context switch.
+On Linux even a matching zero-timeout futex syscall increments this counter;
+on Windows the corresponding portable slow-path returns before waiting.
 - All measured wait durations are elapsed wall time, which overlaps across
   guest threads and is **not CPU utilization**.
 - Real-game FPS, frame-time percentiles, game load, cache contention and
