@@ -2,6 +2,7 @@
 // Runs in separate processes linked against the baseline or candidate source.
 // Measurements are synthetic and do not imply an improvement in game FPS.
 #include "kernel/syncOnAddress.h"
+#include "common/debugCounters.h"
 #include "libs/errno.h"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 
@@ -49,7 +51,19 @@ void Measure(const char* label, uint32_t iterations, int wanted, Call call) {
 }
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    // Default preserves the frozen SyncOnAddress comparison's disabled profile.
+    // The explicit modes allow same-source candidate OFF/ON/ON/OFF calibration.
+    bool enable_profile = false;
+    if (argc == 2 && std::strcmp(argv[1], "--profile-on") == 0) {
+        enable_profile = true;
+    } else if (argc == 2 && std::strcmp(argv[1], "--profile-off") == 0) {
+        enable_profile = false;
+    } else if (argc != 1) {
+        std::fprintf(stderr, "Usage: sync_on_address_cpu_bench [--profile-on|--profile-off]\n");
+        return 2;
+    }
+    Common::DebugCounters::SetEnabled(false);
     using Libs::LibKernel::SyncOnAddress::Wait32;
     using Libs::LibKernel::SyncOnAddress::Wait64;
     constexpr uint32_t kChecks = 1024;
@@ -60,6 +74,7 @@ int main() {
     Require(g_poll_calls.load(std::memory_order_relaxed) == kChecks * 2,
             "mismatched waits must poll guest signals exactly once");
 
+    Common::DebugCounters::SetEnabled(enable_profile);
     std::puts("case,iterations,rounds,min_ns,median_ns,max_ns");
     Measure("mismatch32", kMismatchIterations, OK, [] {
         return Wait32(&g_word32, 0, nullptr);
@@ -77,5 +92,6 @@ int main() {
                 uint32_t zero = 0;
                 return Wait64(&g_word64, 1, &zero);
             });
+    Common::DebugCounters::SetEnabled(false);
     return 0;
 }
