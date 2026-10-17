@@ -210,15 +210,31 @@ uint32_t EmitCompositeExtractU32x2(EmitterState& state, uint32_t arg0, IR::Value
 }
 
 uint32_t EmitPackFloat2x16Rtz(EmitterState& state, uint32_t arg0, uint32_t arg1) {
-	const auto low  = EmitF32ToF16RtzBits(state, arg0);
-	const auto high = Binary(state, spv::OpShiftLeftLogical, TypeU32(state),
-	                         EmitF32ToF16RtzBits(state, arg1), ConstantU32(state, 16));
-	return Binary(state, spv::OpBitwiseOr, TypeU32(state), low, high);
+	const auto pair = state.builder.AllocateId();
+	state.builder.AddFunction(spv::OpCompositeConstruct, TypeF32Vector(state, 2), pair, arg0, arg1);
+	const auto packed = EmitPackHalf2x16(state, pair);
+	const auto back   = EmitExt(state, TypeF32Vector(state, 2), GLSLstd450UnpackHalf2x16, {packed});
+	auto       result = packed;
+	for (uint32_t i = 0; i < 2; i++) {
+		const auto rounded = state.builder.AllocateId();
+		state.builder.AddFunction(spv::OpCompositeExtract, TypeF32(state), rounded, back, i);
+		const auto above =
+		    Binary(state, spv::OpFOrdGreaterThan, TypeBool(state),
+		           EmitExt(state, TypeF32(state), GLSLstd450FAbs, {rounded}),
+		           EmitExt(state, TypeF32(state), GLSLstd450FAbs, {i == 0 ? arg0 : arg1}));
+		result = Binary(state, spv::OpISub, TypeU32(state), result,
+		                Select(state, TypeU32(state), above,
+		                       ConstantU32(state, i == 0 ? 1u : 0x10000u), ConstantU32(state, 0)));
+	}
+	return result;
 }
 
 uint32_t EmitFPSaturate32(EmitterState& state, uint32_t arg0) {
-	return EmitExt(state, TypeF32(state), GLSLstd450FClamp,
-	               {arg0, ConstantF32(state, 0), ConstantF32(state, 0x3f800000u)});
+	// The clamp modifier runs in DX10 clamp mode: NaN becomes 0. FClamp leaves NaN undefined.
+	const auto clamped = EmitExt(state, TypeF32(state), GLSLstd450FClamp,
+	                             {arg0, ConstantF32(state, 0), ConstantF32(state, 0x3f800000u)});
+	return Select(state, TypeF32(state), EmitClassifyF32(state, arg0).nan, ConstantF32(state, 0),
+	              clamped);
 }
 
 uint32_t EmitSMulHi(EmitterState& state, uint32_t arg0, uint32_t arg1) {

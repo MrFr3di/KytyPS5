@@ -11,6 +11,7 @@
 #include "common/subsystems.h"
 #include "common/systemInfo.h"
 #include "common/threads.h"
+#include "graphics/presentation/systemOverlay.h"
 #include "graphics/presentation/window.h"
 #include "kernel/fileSystem.h"
 #include "kernel/memory.h"
@@ -21,6 +22,7 @@
 #include "libs/controller.h"
 #include "libs/libs.h"
 #include "libs/network.h"
+#include "loader/additionalContent.h"
 #include "loader/runtimeLinker.h"
 #include "loader/systemContent.h"
 #include "loader/timer.h"
@@ -138,6 +140,9 @@ static void Init(const Config::ConfigOptions& cfg, const std::filesystem::path& 
 			Libs::LibKernel::Memory::SetFlexibleMemorySize(flexible_memory_size);
 		}
 	}
+	if (cfg.splash_enabled) {
+		Libs::Graphics::InitializeSplashScreen(param_json.parent_path());
+	}
 
 	// Initialization order is explicit; destruction is automatic and reversed.
 	subsystems.Initialize<Loader::Timer::Lifecycle>();
@@ -197,7 +202,15 @@ void Run(const RunOptions& options) {
 
 	PrintSystemInfo();
 	std::string title_id;
-	if (Loader::SystemContentParamSfoGetString("TITLE_ID", &title_id) && !title_id.empty()) {
+	Loader::SystemContentParamSfoGetString("TITLE_ID", &title_id);
+	if (title_id.empty()) {
+		std::string content_id;
+		if (Loader::SystemContentParamSfoGetString("CONTENT_ID", &content_id) &&
+		    content_id.size() == 36 && content_id[6] == '-' && content_id[16] == '_') {
+			title_id = content_id.substr(7, 9);
+		}
+	}
+	if (!title_id.empty()) {
 		Log::WriteToConsoleAndLog(fmt::format("Title ID: {}\n", title_id));
 	}
 
@@ -213,6 +226,7 @@ void Run(const RunOptions& options) {
 
 	MountSandboxDirs();
 
+	Loader::AddContentLoad(options.addcont_dir, title_id);
 	auto* rt = Common::Singleton<Loader::RuntimeLinker>::Instance();
 	Libs::InitAll(rt->Symbols());
 
