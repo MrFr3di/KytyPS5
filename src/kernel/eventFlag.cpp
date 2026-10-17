@@ -102,9 +102,11 @@ KernelEventFlagPrivate::~KernelEventFlagPrivate() {
 	m_cond_var.SignalAll();
 
 	while (m_waiting_threads > 0) {
-		// Condition waits atomically release/reacquire m_mutex; the final
-		// waiter notifies while holding this lock, so no wake can be lost.
-		m_drained_cond_var.Wait(&m_mutex);
+		// The final waiter signals under m_mutex, avoiding a lost wake.
+		// Use WaitFor rather than Wait: the latter may dispatch guest signal
+		// callbacks on timed slices, which can reenter Cancel during draining.
+		// The long timeout is only a fallback for spurious notifications.
+		(void)m_drained_cond_var.WaitFor(&m_mutex, 1000000);
 	}
 }
 
@@ -241,9 +243,11 @@ void KernelEventFlagPrivate::Cancel(uint64_t bits, int* num_waiting_threads) {
 	m_cond_var.SignalAll();
 
 	while (m_waiting_threads > 0) {
-		// Condition waits atomically release/reacquire m_mutex; the final
-		// waiter notifies while holding this lock, so no wake can be lost.
-		m_drained_cond_var.Wait(&m_mutex);
+		// The final waiter signals under m_mutex, avoiding a lost wake.
+		// Use WaitFor rather than Wait: the latter may dispatch guest signal
+		// callbacks on timed slices, which can reenter Cancel during draining.
+		// The long timeout is only a fallback for spurious notifications.
+		(void)m_drained_cond_var.WaitFor(&m_mutex, 1000000);
 	}
 
 	m_status = Status::Set;
