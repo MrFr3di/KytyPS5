@@ -30,6 +30,18 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Verify exact CPU branch and checkout provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/perf/cpu-runtime-research"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "${CPU_BASE_SHA}" = "b82512be065b2fa2432cfa4e5a8c779604236299"
+          git cat-file -e "${CPU_BASE_SHA}^{commit}"
+          # Never accept an accidental baseline equal to the feature candidate.
+          test "${GITHUB_SHA}" != "${CPU_BASE_SHA}"
+          echo "CPU_BRANCH_PROVENANCE_PASS: ${GITHUB_SHA}"
+
       - name: Verify CPU benchmark analyzer and evidence rejection
         shell: pwsh
         run: |
