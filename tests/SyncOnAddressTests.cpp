@@ -321,6 +321,7 @@ void TestProfileCountersOptIn() {
   const auto before_calls = Get(Counter::CpuAddressWaitCalls);
   const auto before_changed = Get(Counter::CpuAddressImmediateMismatch);
   const auto before_registered = Get(Counter::CpuAddressRegistered);
+  const auto before_parks = Get(Counter::CpuAddressParkCalls);
 
   SetEnabled(false);
   Check(Wait32(&word, 0, &zero) == OK, "unprofiled mismatch still succeeds");
@@ -331,12 +332,21 @@ void TestProfileCountersOptIn() {
   Check(Wait32(&word, 0, &zero) == OK, "profiled mismatch succeeds");
   Check(Wait32(&word, 9, &zero) == Libs::LibKernel::KERNEL_ERROR_ETIMEDOUT,
         "profiled registered zero-timeout wait expires");
-  Check(Get(Counter::CpuAddressWaitCalls) == before_calls + 2,
-        "profile counts both valid wait calls");
+  Check(Get(Counter::CpuAddressParkCalls) == before_parks,
+        "matching zero-timeout registration is not a real park");
+  uint32_t finite_timeout = 3000;
+  Check(Wait32(&word, 9, &finite_timeout) == Libs::LibKernel::KERNEL_ERROR_ETIMEDOUT,
+        "finite matching wait parks then times out");
+  Check(Get(Counter::CpuAddressWaitCalls) == before_calls + 3,
+        "profile counts all valid wait calls");
   Check(Get(Counter::CpuAddressImmediateMismatch) == before_changed + 1,
         "profile counts only immediate mismatch");
-  Check(Get(Counter::CpuAddressRegistered) == before_registered + 1,
-        "profile counts only matching address registrations");
+  Check(Get(Counter::CpuAddressRegistered) == before_registered + 2,
+        "profile counts zero-timeout and finite registered paths");
+  Check(Get(Counter::CpuAddressParkCalls) > before_parks,
+        "actual finite wait records condition park");
+  Check(Get(Counter::CpuAddressParkNs) > 0,
+        "actual finite wait records positive wall duration");
   SetEnabled(false);
 }
 #endif
