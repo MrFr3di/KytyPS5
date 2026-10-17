@@ -56,6 +56,26 @@ in mismatched waits, the system-wide win may be negligible.
 wake-one/all and timeout behavior. The added repeated 32/64-bit mismatch
 case also asserts one guest signal callback per valid `WaitImpl` call.
 
+### Differential correctness strengthened
+
+The CI builds `sync_on_address_tests` against the candidate and
+`sync_on_address_tests_baseline` against the **frozen** source in
+`_Build/cpu-win/cpu_baseline_sync_on_address.cpp`. Both use the exact same
+`tests/SyncOnAddressTests.cpp` driver and the same `common` target,
+so there is no duplicate manually-maintained baseline oracle. CI additionally
+runs `event_queue_lifetime` for adjacent kernel synchronization coverage.
+Each selected CTest invocation uses `--no-tests=error`: a missing CTest
+registration is an explicit failure, not a green empty result.
+
+The new `sync_on_address_baseline` CTest registration is conditional on the
+frozen source file being present *before CMake configure*. This is intentional:
+the baseline target must not change normal release or default-branch builds.
+CI extraction precedes configure and aborts if that source cannot be read.
+
+All three tests must complete before the synthetic A-B-B-A performance rounds.
+A correctness regression in either variant invalidates the comparison. Full
+`LastTest.log` is retained with the benchmark artifact for debugging.
+
 The standalone `tests/SyncOnAddressCpuBench.cpp` measures **real**
 `SyncOnAddress` public functions linked separately against:
 
@@ -84,11 +104,14 @@ performance verdict remains **NO_GAME_EVIDENCE**.
 or explicit manual trigger. Hosted Windows 2022 clang-cl:
 1. Extract immutable original source from frozen main SHA.
 2. Configure CMake without Qt launcher.
-3. Compile both production-source benchmark variants plus
-   `sync_on_address_tests` and `event_queue_lifetime_tests`.
-4. Run CTest correctness gate, then ABBA comparative measurements.
-5. Build complete `kyty_emulator` and run headless CLI smoke test.
-6. Upload raw CSV, summary and host hardware/toolchain evidence even on failure.
+3. Compile candidate and frozen-baseline `sync_on_address_tests`,
+   `event_queue_lifetime_tests`, and both production-source benchmark variants.
+4. Run CTest differential correctness gate with `--no-tests=error`, then
+   ABBA comparative measurements.
+5. Build complete `kyty_emulator` and run headless CLI smoke test with
+   `--no-tests=error`.
+6. Upload raw CSV, summary, host hardware/toolchain details and CTest log even
+   on failure.
 
 A green result must be observed on the exact candidate HEAD before accepting.
 GitHub Actions queue/enablement and workflow discovery are independent
