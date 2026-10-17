@@ -72,6 +72,30 @@ void TestMismatchReturnsImmediately() {
         "mismatch remains a guest signal safe-point");
 }
 
+// Repeated mismatches exercise the portable no-registration fast path.
+// Public Wait32/Wait64 must still deliver each guest signal safe point.
+void TestRepeatedMismatchSignals() {
+  g_signal_poll_count.store(0, std::memory_order_relaxed);
+  uint32_t word32 = 2;
+  uint64_t word64 = UINT64_C(0x100000002);
+  uint32_t timeout = 0;
+  constexpr int rounds = 2048;
+  for (int i = 0; i < rounds; ++i) {
+    Check(Wait32(&word32, 1, nullptr, CountSignalPoll) == OK,
+          "32-bit mismatch returns without parking");
+    Check(Wait64(&word64, 1, &timeout, CountSignalPoll) == OK,
+          "64-bit mismatch ignores zero timeout when already changed");
+  }
+  Check(g_signal_poll_count.load(std::memory_order_relaxed) == rounds * 2,
+        "all mismatch returns poll guest signals exactly once");
+
+  // Invalid calls do not enter WaitPortable and must not call back.
+  Check(Wait32(nullptr, 1, &timeout, CountSignalPoll) ==
+            Libs::LibKernel::KERNEL_ERROR_EINVAL, "invalid mismatch address");
+  Check(g_signal_poll_count.load(std::memory_order_relaxed) == rounds * 2,
+        "invalid wait never dispatches a guest signal callback");
+}
+
 void TestTimeout() {
   uint32_t word = 0;
   uint32_t timeout = 20000;
@@ -290,6 +314,7 @@ void TestWakeZeroIsNoOp() {
 int main() {
   TestInvalidAddress();
   TestMismatchReturnsImmediately();
+  TestRepeatedMismatchSignals();
   TestTimeout();
   TestValueChangeAndWake();
   TestNanosecondTimeout();
