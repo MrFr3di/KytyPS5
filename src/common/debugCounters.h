@@ -44,6 +44,21 @@ enum class Counter {
 	GuestFileReadBytes,
 	GuestFileWriteBytes,
 	AudioUnderruns,
+	// CPU-PROFILE-001A: opt-in (performance overlay visible only).
+	// Duration counters accumulate elapsed wall time across threads, NOT CPU utilization.
+	CpuAddressWaitCalls,
+	CpuAddressImmediateMismatch,
+	CpuAddressRegistered,
+	CpuAddressRegisteredNs,
+	CpuSemaphoreWaitCalls,
+	CpuSemaphoreBlocked,
+	CpuSemaphoreBlockedNs,
+	CpuSemaphoreDrainCalls,
+	CpuSemaphoreDrainNs,
+	CpuEventFlagParks,
+	CpuEventFlagParkNs,
+	CpuEventFlagDrainCalls,
+	CpuEventFlagDrainNs,
 	Count
 };
 
