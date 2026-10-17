@@ -4,6 +4,7 @@
 #include "kernel/semaphore.h"
 #include "libs/errno.h"
 #include "common/threads.h"
+#include "common/debugCounters.h"
 
 #include <atomic>
 #include <chrono>
@@ -351,6 +352,33 @@ void TestGuestSignalPolling() {
           "native semaphore wait retains guest signal polling");
     Check(Sem::KernelDeleteSema(sem) == OK, "delete after signal polling");
 }
+void TestProfileCountersOptIn() {
+    using namespace Common::DebugCounters;
+    const auto before_calls = Get(Counter::CpuSemaphoreWaitCalls);
+    const auto before_blocked = Get(Counter::CpuSemaphoreBlocked);
+    auto sem = NewSema();
+    SetEnabled(true);
+    int result = -1;
+    std::thread waiter([&] {
+        result = Sem::KernelWaitSema(sem, 1, nullptr);
+    });
+    Registered(sem, 1);
+    Check(Sem::KernelSignalSema(sem, 1) == OK,
+          "profiled semaphore signal");
+    waiter.join();
+    Check(result == OK, "profiled semaphore wait succeeded");
+    Check(Get(Counter::CpuSemaphoreWaitCalls) == before_calls + 1,
+          "semaphore profile counts valid calls");
+    Check(Get(Counter::CpuSemaphoreBlocked) == before_blocked + 1,
+          "semaphore profile records registered blocking waits");
+    SetEnabled(false);
+    Check(Sem::KernelPollSema(sem, 1) == Libs::LibKernel::KERNEL_ERROR_EBUSY,
+          "unprofiled semaphore poll still works");
+    Check(Get(Counter::CpuSemaphoreWaitCalls) == before_calls + 1,
+          "disabled semaphore profile does not collect calls");
+    Check(Sem::KernelDeleteSema(sem) == OK, "delete after profiling");
+}
+
 } // namespace
 
 int main() {
@@ -365,6 +393,7 @@ int main() {
     TestTimeoutCancelRace();
     TestWeightedPriorityBypass();
     TestGuestSignalPolling();
+    TestProfileCountersOptIn();
     std::puts("SemaphoreLifecycleTests: all passed");
     return 0;
 }
