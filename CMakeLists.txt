@@ -594,6 +594,14 @@ add_executable(sync_on_address_tests EXCLUDE_FROM_ALL
 )
 target_link_libraries(sync_on_address_tests common)
 target_include_directories(sync_on_address_tests PRIVATE ${inc_headers})
+
+# CPU-PROFILE-001B: stand-alone test for guest HLE API source classification.
+# Header-only counters have no link-time dependency on emulator guest code.
+add_executable(cpu_sync_entry_counters_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/CpuSyncEntryCountersTests.cpp"
+)
+target_include_directories(cpu_sync_entry_counters_tests PRIVATE ${inc_headers})
+
 # Baseline compiles the same test source without the candidate-only telemetry checks.
 target_compile_definitions(sync_on_address_tests PRIVATE KYTY_CPU_PROFILE_TEST_COUNTERS=1)
 
@@ -697,6 +705,7 @@ if(BUILD_TESTING)
 	add_test(NAME semaphore_lifecycle COMMAND $<TARGET_FILE:semaphore_lifecycle_tests>)
 	add_test(NAME kernel_file_system COMMAND $<TARGET_FILE:kernel_file_system_tests>)
 	add_test(NAME sync_on_address COMMAND $<TARGET_FILE:sync_on_address_tests>)
+	add_test(NAME cpu_sync_entry_counters COMMAND $<TARGET_FILE:cpu_sync_entry_counters_tests>)
 	if(TARGET sync_on_address_tests_baseline)
 		add_test(NAME sync_on_address_baseline COMMAND $<TARGET_FILE:sync_on_address_tests_baseline>)
 	endif()
