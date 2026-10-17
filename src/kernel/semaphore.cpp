@@ -46,6 +46,13 @@ public:
 
 	[[nodiscard]] const std::string& GetName() const { return m_name; }
 
+#ifdef KYTY_SEMAPHORE_TEST_HOOKS
+	int GetWaitingCountForTests() {
+		Common::LockGuard lock(m_mutex);
+		return static_cast<int>(m_waiting_threads.size());
+	}
+#endif
+
 private:
 	enum class Status { Set, Deleted };
 
@@ -63,6 +70,8 @@ private:
 
 	Common::Mutex               m_mutex;
 	Common::CondVar             m_cond_var;
+	// Only lifecycle owners wait here; guest semaphore waits use m_cond_var.
+	Common::CondVar             m_drained_cond_var;
 	std::string                 m_name;
 	Status                      m_status = Status::Set;
 	std::vector<WaitingThread*> m_waiting_threads;
@@ -93,9 +102,9 @@ KernelSemaPrivate::~KernelSemaPrivate() {
 	m_cond_var.SignalAll();
 
 	while (!m_waiting_threads.empty()) {
-		m_mutex.Unlock();
-		Common::Thread::SleepMicro(10);
-		m_mutex.Lock();
+		// Avoid host-side busy waiting; the final waiter signals under m_mutex.
+		// WaitFor avoids invoking the guest poll callback in CondVar::Wait.
+		(void)m_drained_cond_var.WaitFor(&m_mutex, 1000000);
 	}
 }
 
@@ -167,6 +176,9 @@ void KernelSemaPrivate::RemoveWaiter(WaitingThread* waiter) {
 	auto it = std::find(m_waiting_threads.begin(), m_waiting_threads.end(), waiter);
 	if (it != m_waiting_threads.end()) {
 		m_waiting_threads.erase(it);
+		if (m_waiting_threads.empty()) {
+			m_drained_cond_var.SignalAll();
+		}
 	}
 }
 
@@ -369,6 +381,12 @@ int KYTY_SYSV_ABI KernelCancelSema(KernelSema sem, int count, int* threads) {
 
 	return ret;
 }
+
+#ifdef KYTY_SEMAPHORE_TEST_HOOKS
+int KernelSemaWaitingCountForTests(KernelSema sem) {
+	return sem->GetWaitingCountForTests();
+}
+#endif
 
 } // namespace Libs::LibKernel::Semaphore
 
