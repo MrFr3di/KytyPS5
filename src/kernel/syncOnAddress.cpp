@@ -115,8 +115,13 @@ int WaitLinux(volatile T* address, T expected, const WaitDeadline& deadline,
 
 		long result     = 0;
 		int  wait_error = 0;
-		result          = syscall(SYS_futex, const_cast<T*>(address), FUTEX_WAIT_PRIVATE,
-		                          static_cast<uint32_t>(expected), &timeout, nullptr, 0);
+		{
+			Common::DebugCounters::ScopedTimer park(
+			    Common::DebugCounters::Counter::CpuAddressParkCalls,
+			    Common::DebugCounters::Counter::CpuAddressParkNs);
+			result = syscall(SYS_futex, const_cast<T*>(address), FUTEX_WAIT_PRIVATE,
+			                 static_cast<uint32_t>(expected), &timeout, nullptr, 0);
+		}
 		if (result != 0) {
 			wait_error = errno;
 		}
@@ -233,7 +238,12 @@ int WaitPortable(volatile T* address, T expected, const WaitDeadline& deadline,
 			break;
 		}
 
-		(void)waiter.condition.WaitFor(&entry->mutex, slice_micros);
+		{
+			Common::DebugCounters::ScopedTimer park(
+			    Common::DebugCounters::Counter::CpuAddressParkCalls,
+			    Common::DebugCounters::Counter::CpuAddressParkNs);
+			(void)waiter.condition.WaitFor(&entry->mutex, slice_micros);
+		}
 		entry->mutex.Unlock();
 		PollSignals(signal_poll);
 		entry->mutex.Lock();
