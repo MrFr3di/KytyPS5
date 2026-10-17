@@ -1,5 +1,6 @@
 #include "kernel/syncOnAddress.h"
 
+#include "common/debugCounters.h"
 #include "common/threads.h"
 #include "libs/errno.h"
 
@@ -10,6 +11,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 #if KYTY_PLATFORM == KYTY_PLATFORM_LINUX && !defined(__APPLE__)
@@ -86,11 +88,21 @@ void PollSignals(signal_poll_func_t signal_poll) {
 template <typename T>
 int WaitLinux(volatile T* address, T expected, const WaitDeadline& deadline,
               signal_poll_func_t signal_poll) {
-	bool       first_wait = true;
+	bool first_wait = true;
+	// Construct the timer only after observing the matching expected value.
+	std::optional<Common::DebugCounters::ScopedTimer> registered;
 
 	for (;;) {
 		if (ReadWord(address) != expected) {
+			if (first_wait) {
+				Common::DebugCounters::Add(
+				    Common::DebugCounters::Counter::CpuAddressImmediateMismatch);
+			}
 			return OK;
+		}
+		if (first_wait) {
+			registered.emplace(Common::DebugCounters::Counter::CpuAddressRegistered,
+			                   Common::DebugCounters::Counter::CpuAddressRegisteredNs);
 		}
 		const auto slice_micros = GetWaitSliceMicros(deadline, first_wait);
 		if (slice_micros == UINT32_MAX) {
@@ -197,9 +209,14 @@ int WaitPortable(volatile T* address, T expected, const WaitDeadline& deadline,
 	// The slow path still compares under the per-address mutex after
 	// registration, preventing a lost wake between compare and park.
 	if (ReadWord(address) != expected) {
+		Common::DebugCounters::Add(
+		    Common::DebugCounters::Counter::CpuAddressImmediateMismatch);
 		return OK;
 	}
 
+	Common::DebugCounters::ScopedTimer registered(
+	    Common::DebugCounters::Counter::CpuAddressRegistered,
+	    Common::DebugCounters::Counter::CpuAddressRegisteredNs);
 	PortableWaiter waiter;
 	auto           entry      = RegisterPortableWaiter(address, &waiter);
 	bool           first_wait = true;
@@ -267,6 +284,7 @@ int WaitImpl(volatile T* address, T expected, const WaitDeadline& deadline,
 	if (!IsValidWaitAddress(address)) {
 		return KERNEL_ERROR_EINVAL;
 	}
+	Common::DebugCounters::Add(Common::DebugCounters::Counter::CpuAddressWaitCalls);
 
 	int result = OK;
 #if KYTY_PLATFORM == KYTY_PLATFORM_LINUX && !defined(__APPLE__)
