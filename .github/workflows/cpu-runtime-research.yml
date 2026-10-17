@@ -1,4 +1,4 @@
-name: KYTY-CPU-001 Windows x64 CPU baseline and sync research
+name: KYTY-CPU-001 Windows and Linux x64 CPU correctness and profiling
 
 on:
   push:
@@ -46,6 +46,8 @@ jobs:
         shell: pwsh
         run: |
           python -m unittest discover -s tests -p "test_cpu_sync_benchmark_analyzer.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p "test_cpu_profile_overhead_analyzer.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Initialize Visual Studio clang-cl toolchain
@@ -132,6 +134,23 @@ jobs:
           Get-Content cpu-sync-summary.csv
           if (-not (Select-String -Path cpu-sync-summary.csv -SimpleMatch 'CPU_SYNC_001_ANALYZER_PASS')) { throw "missing CPU analysis acceptance marker" }
 
+      - name: Calibrate opt-in telemetry overhead OFF-ON-ON-OFF (synthetic)
+        shell: pwsh
+        run: |
+          $bench = ".\\_Build\\cpu-win\\sync_on_address_cpu_bench.exe"
+          & $bench --profile-off > cpu-profile-off-first.csv
+          if ($LASTEXITCODE -ne 0) { throw "profile OFF first failed" }
+          & $bench --profile-on > cpu-profile-on-first.csv
+          if ($LASTEXITCODE -ne 0) { throw "profile ON first failed" }
+          & $bench --profile-on > cpu-profile-on-second.csv
+          if ($LASTEXITCODE -ne 0) { throw "profile ON second failed" }
+          & $bench --profile-off > cpu-profile-off-second.csv
+          if ($LASTEXITCODE -ne 0) { throw "profile OFF second failed" }
+          python scripts/analyze_cpu_profile_overhead.py cpu-profile-off-first.csv cpu-profile-on-first.csv cpu-profile-on-second.csv cpu-profile-off-second.csv --commit-sha $env:GITHUB_SHA --platform windows > cpu-profile-overhead-summary.csv
+          if ($LASTEXITCODE -ne 0) { throw "overhead analyzer rejected evidence" }
+          Get-Content cpu-profile-overhead-summary.csv
+          if (-not (Select-String -Path cpu-profile-overhead-summary.csv -SimpleMatch 'CPU_PROFILE_001C_ANALYZER_PASS')) { throw "missing overhead parser marker" }
+
       - name: Compile entire headless emulator against tested CPU sources
         shell: cmd
         run: |
@@ -155,5 +174,10 @@ jobs:
             cpu-sync-candidate-first.csv
             cpu-sync-candidate-second.csv
             cpu-sync-summary.csv
+            cpu-profile-off-first.csv
+            cpu-profile-off-second.csv
+            cpu-profile-on-first.csv
+            cpu-profile-on-second.csv
+            cpu-profile-overhead-summary.csv
             cpu-semaphore-stress.log
             _Build/cpu-win/Testing/Temporary/LastTest.log
