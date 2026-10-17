@@ -86,9 +86,13 @@ They share the same test driver and `common` library in the same
 `windows-2022` job. Each process warms up then records nine iterations
 (rounds) per case. A-B-B-A repeated process ordering mitigates thermal and VM
 drift. Analyzer validates schema, sample counts, ranges and reports
-baseline-over-candidate ratio and between-invocation drift. It flags >20%
-between-run drift as `NOISY_SYNTHETIC`. Numerical speedup **cannot** override
-a failed correctness gate.
+baseline-over-candidate ratio, between-invocation drift and worst-case
+within-process `(max - min) / median` jitter across the nine rounds. It flags
+either >20% between-run drift or >20% within-run jitter as
+`NOISY_SYNTHETIC`. This deliberately conservative instability signal is not
+a statistical confidence interval; inspect raw measurements and rerun noisy
+comparisons before making a latency claim. Numerical speedup **cannot**
+override a failed correctness gate.
 
 Cases: `mismatch32`, `mismatch64`, `timeout32_zero`,
 `timeout64_zero`; timeout cases are negative controls.
