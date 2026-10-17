@@ -578,6 +578,14 @@ add_executable(sync_on_address_tests EXCLUDE_FROM_ALL
 target_link_libraries(sync_on_address_tests common)
 target_include_directories(sync_on_address_tests PRIVATE ${inc_headers})
 
+# CPU-only microbenchmark: no graphics backend, shader compilation, or runtime GPU.
+add_executable(sync_on_address_cpu_bench EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/SyncOnAddressCpuBench.cpp"
+	"${KYTY_SOURCE_DIR}/kernel/syncOnAddress.cpp"
+)
+target_link_libraries(sync_on_address_cpu_bench common)
+target_include_directories(sync_on_address_cpu_bench PRIVATE ${inc_headers})
+
 add_executable(image_page_table_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/ImagePageTableTests.cpp"
 )
