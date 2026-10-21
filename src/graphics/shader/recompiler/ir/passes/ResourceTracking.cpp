@@ -426,6 +426,7 @@ public:
 		}
 		for (const auto& patch: m_memory_patches) {
 			auto& memory    = m_program.memory_info[patch.index];
+			NoteIrMutation();
 			memory.resource = patch.resource;
 			if (patch.has_sampler) {
 				memory.sampler = patch.sampler;
@@ -547,6 +548,7 @@ public:
 				}
 			}
 			if (plan.reads[0] != nullptr && !plan.retain_reads) {
+				NoteIrMutation();
 				for (uint32_t word = 0; word < plan.read_dwords; ++word)
 					m_program.memory_info[plan.memory[word]].planning_only = true;
 			}
@@ -944,6 +946,7 @@ private:
 			EXIT_IF(resolved == m_resolved_handles.end());
 			uint32_t bad_dword = 0;
 			if (!ValidateSource(resolved->source, bad_dword)) continue;
+			NoteIrMutation();
 			memory.planning_only = true;
 			uint32_t slot = 0;
 			for (; slot < m_program.srt_reads.size(); ++slot) {
@@ -976,8 +979,14 @@ private:
 						entry.source.dwords[word] = flat;
 			}
 			for (auto* block: m_program.blocks) {
-				if (block->condition.Resolve() == Value(read)) block->condition = flat;
-				if (block->indirect_target.Resolve() == Value(read)) block->indirect_target = flat;
+				if (block->condition.Resolve() == Value(read)) {
+					NoteIrMutation();
+					block->condition = flat;
+				}
+				if (block->indirect_target.Resolve() == Value(read)) {
+					NoteIrMutation();
+					block->indirect_target = flat;
+				}
 			}
 			if (keep) {
 				if (resolved->planning_handle.IsEmpty()) {
@@ -1716,6 +1725,27 @@ private:
 		return {};
 	}
 
+	struct IncrementGuard {
+		uint64_t epoch   = 0;
+		bool     guarded = false;
+	};
+
+	bool IncrementGuarded(const Inst& phi, const Inst& compare, const Block* increment_block,
+	                      const auto& stops) const {
+		const auto epoch = g_ir_mutation_epoch;
+		const auto key   = std::tuple {&phi, &compare, increment_block};
+		if (const auto found = m_increment_guards.find(key);
+		    found != m_increment_guards.end() && found->second.epoch == epoch) {
+			return found->second.guarded;
+		}
+		LoopBoundProof proof(m_program, phi, compare);
+		const bool guarded = GuardedOnEntry(increment_block, stops, [&](const EdgePredicate& edge) {
+			return proof.Excludes(edge.condition, edge.positive);
+		});
+		m_increment_guards.insert_or_assign(key, IncrementGuard {epoch, guarded});
+		return guarded;
+	}
+
 	const Inst* BoundedInduction(Value key, const Block* use, const auto& accepts_step,
 	                             const auto& accepts_bound,
 	                             LaneQuantifier lanes = LaneQuantifier::Any) const {
@@ -1744,12 +1774,9 @@ private:
 				return edge.positive && (lanes == LaneQuantifier::Any || edge.lanes == lanes) &&
 				       Implies(edge.condition, Value(use_of_key.user));
 			})) continue;
-			LoopBoundProof proof(m_program, *phi, *compare);
 			// The image bound and the increment guard are separate obligations: a
 			// skipped image alone does not prevent signed induction wraparound.
-			if (GuardedOnEntry(increment_block, stops, [&](const EdgePredicate& edge) {
-				return proof.Excludes(edge.condition, edge.positive);
-			})) return compare;
+			if (IncrementGuarded(*phi, *compare, increment_block, stops)) return compare;
 		}
 		return {};
 	}
@@ -3982,6 +4009,7 @@ private:
 					     "buffer descriptor is not a valid runtime value; GPU-selected access "
 					     "requires a scalar, raw 8/16-bit, raw DWORD x1/x2/x3/x4, or formatted X load");
 				}
+				NoteIrMutation();
 				m_program.memory_info[flags.index].kind = ResourceKind::IndirectBuffer;
 				m_info.uses_dma                         = true;
 				return;
@@ -4004,6 +4032,7 @@ private:
 				if (memory.data_bits != 32u || m_program.scratch_dwords == 0) {
 					Fail(flags.pc, "local FLAT access requires DWORD data and per-thread scratch storage");
 				}
+				NoteIrMutation();
 				m_program.memory_info[flags.index].kind = ResourceKind::FlatLocal;
 				return;
 			}
@@ -4119,6 +4148,8 @@ private:
 	std::vector<IndirectDescriptorPlan>             m_indirect_descriptors;
 	std::map<const Inst*, Value>              m_descriptor_values;
 	bool                                       m_shader_writes = false;
+	mutable std::map<std::tuple<const Inst*, const Inst*, const Block*>, IncrementGuard>
+	    m_increment_guards;
 };
 
 UniformFillPlan RecognizePatternFill(Program& program, const Decoder::Program& decoded,

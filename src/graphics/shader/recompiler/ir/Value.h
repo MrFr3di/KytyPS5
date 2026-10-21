@@ -102,6 +102,14 @@ struct Use {
 	bool operator==(const Use&) const = default;
 };
 
+// Bumped on this thread when an instruction or its CFG ownership changes. Analyses may reuse a
+// result while the epoch it was computed at is unchanged.
+inline thread_local uint64_t g_ir_mutation_epoch = 0;
+
+inline void NoteIrMutation() noexcept {
+	++g_ir_mutation_epoch;
+}
+
 class Inst {
 public:
 	explicit Inst(ValueOpcode opcode, uint64_t flags = 0);
@@ -154,6 +162,7 @@ public:
 	template <typename T>
 	requires(sizeof(T) <= sizeof(uint64_t) && std::is_trivially_copyable_v<T>)
 	void SetFlags(T value) {
+		NoteIrMutation();
 		flags = 0;
 		std::memcpy(&flags, &value, sizeof(value));
 	}
