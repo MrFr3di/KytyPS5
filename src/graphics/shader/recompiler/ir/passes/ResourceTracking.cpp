@@ -208,6 +208,37 @@ public:
 	}
 
 private:
+	static uint64_t Mix(uint64_t value) {
+		value ^= value >> 33;
+		value *= 0xff51afd7ed558ccdull;
+		value ^= value >> 33;
+		value *= 0xc4ceb9fe1a85ec53ull;
+		return value ^ (value >> 33);
+	}
+
+	struct TripleHash {
+		size_t operator()(const std::array<uint32_t, 3>& key) const noexcept {
+			return static_cast<size_t>(
+			    Mix((static_cast<uint64_t>(key[0]) << 32 | key[1]) ^ Mix(key[2])));
+		}
+	};
+
+	struct PredicateKey {
+		ValueOpcode opcode;
+		uint64_t    flags;
+		uint32_t    left;
+		uint32_t    right;
+		bool        operator==(const PredicateKey&) const = default;
+	};
+
+	struct PredicateHash {
+		size_t operator()(const PredicateKey& key) const noexcept {
+			return static_cast<size_t>(
+			    Mix(key.flags ^ Mix(static_cast<uint64_t>(key.opcode))) ^
+			    Mix(static_cast<uint64_t>(key.left) << 32 | key.right));
+		}
+	};
+
 	struct Node {
 		uint32_t variable = UINT32_MAX;
 		uint32_t low = 0;
@@ -252,7 +283,7 @@ private:
 			if (inst.GetOpcode() == ValueOpcode::IEqual32) return 1u;
 			if (inst.GetOpcode() == ValueOpcode::INotEqual32) return 0u;
 		}
-		const auto key = std::tuple {inst.GetOpcode(), inst.Flags<uint64_t>(), left, right};
+		const PredicateKey key {inst.GetOpcode(), inst.Flags<uint64_t>(), left, right};
 		if (const auto found = m_predicates.find(key); found != m_predicates.end()) return found->second;
 		const auto variable = std::min(m_nodes[left].variable, m_nodes[right].variable);
 		uint32_t result;
@@ -289,7 +320,8 @@ private:
 			if (found->second == UINT32_MAX) found->second = Unknown(value.GetType());
 			return found->second;
 		}
-		const auto cached = values.emplace(inst, UINT32_MAX).first;
+		// References survive rehashing while the recursion below inserts more values.
+		auto& cached = values.emplace(inst, UINT32_MAX).first->second;
 		auto result = UINT32_MAX;
 		const auto arg = [&](uint32_t index) { return Evaluate(inst->Arg(index), current); };
 		switch (inst->GetOpcode()) {
@@ -337,10 +369,10 @@ private:
 		}
 		// Only unsupported values and cycles need free variables.
 		if (result == UINT32_MAX) {
-			if (cached->second == UINT32_MAX) cached->second = Unknown(value.GetType());
-			return cached->second;
+			if (cached == UINT32_MAX) cached = Unknown(value.GetType());
+			return cached;
 		}
-		cached->second = result;
+		cached = result;
 		return result;
 	}
 
@@ -352,10 +384,11 @@ private:
 	bool m_exclude_bound = true;
 	std::vector<Node> m_nodes {{}, {}};
 	std::vector<std::pair<Value, uint32_t>> m_literals;
-	std::array<std::map<const Inst*, uint32_t>, 2> m_values;
-	std::map<std::array<uint32_t, 3>, uint32_t> m_nodes_by_key;
-	std::map<std::array<uint32_t, 3>, uint32_t> m_choices;
-	std::map<std::tuple<ValueOpcode, uint64_t, uint32_t, uint32_t>, uint32_t> m_predicates;
+	using Values = std::unordered_map<const Inst*, uint32_t>;
+	std::array<Values, 2> m_values;
+	std::unordered_map<std::array<uint32_t, 3>, uint32_t, TripleHash> m_nodes_by_key;
+	std::unordered_map<std::array<uint32_t, 3>, uint32_t, TripleHash> m_choices;
+	std::unordered_map<PredicateKey, uint32_t, PredicateHash> m_predicates;
 };
 
 class Tracker {
