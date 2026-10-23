@@ -5,6 +5,7 @@
 #include "common/stringUtils.h"
 #include "graphics/shader/recompiler/BufferFormat.h"
 #include "graphics/shader/recompiler/backend/spirv/SpirvBuilder.h"
+#include "graphics/shader/recompiler/backend/spirv/SpirvEmitter.h"
 #include "graphics/shader/recompiler/ir/ShaderIR.h"
 #include "graphics/shader/recompiler/ir/passes/ResourceMaterialization.h"
 
@@ -73,9 +74,9 @@ struct ImageDefinition {
 };
 
 struct EmitterState {
-	EmitterState(IR::Program& program_, ShaderStageInputInfo input_info_, bool maintenance8_enabled_)
+	EmitterState(IR::Program& program_, ShaderStageInputInfo input_info_, const Profile& profile_)
 	    : builder(program_.stage == ShaderType::Mesh ? 0x00010400u : 0x00010300u),
-	      program(program_), input_info(input_info_), maintenance8_enabled(maintenance8_enabled_) {
+	      program(program_), input_info(input_info_), profile(profile_) {
 		if (ShaderWorkgroupInput(program.stage, input_info) != nullptr) {
 			lds_storage_class = spv::StorageClassWorkgroup;
 		}
@@ -88,7 +89,7 @@ struct EmitterState {
 	Builder                                          builder;
 	IR::Program&                                     program;
 	ShaderStageInputInfo                             input_info;
-	bool                                            maintenance8_enabled;
+	const Profile&                                      profile;
 	uint32_t                                        debug_source = 0;
 	uint32_t                                        void_type = 0;
 	uint32_t                                        bool_type = 0;
@@ -129,6 +130,7 @@ struct EmitterState {
 	uint32_t                                         lds_u64_variable        = 0;
 	std::array<uint32_t, 2>                          scratch_variable {};
 	std::array<ImageDefinition, IR::ImageBindingCount> images {};
+	std::array<ImageDefinition, IR::ImageBindingCount> heap_images {};
 	uint32_t                   sampler_variable                      = 0;
 	uint32_t                   sampler_type                          = 0;
 	uint32_t                   sampler_pointer_type                  = 0;
@@ -338,8 +340,9 @@ uint32_t MakeSampledImage(EmitterState& state, uint32_t resource, uint32_t sampl
                           uint32_t mip = 0, uint32_t array_index = 0,
                           bool sampler_dynamic = false);
 
+// sample is 0 (no id) for single-sampled images.
 void EmitStorageImageWrite(EmitterState& state, uint32_t resource, uint32_t mip_lod, uint32_t coord,
-                           uint32_t texel, uint32_t array_index);
+                           uint32_t texel, uint32_t array_index, uint32_t sample);
 
 spv::ExecutionModel ExecutionModelForStage(ShaderType stage);
 
@@ -429,6 +432,8 @@ struct MemoryResourceAccess {
 
 uint32_t EmitIndirectResourceIndex(EmitterState& state, uint32_t key, uint32_t mapping_offset,
                                    uint32_t search_iterations, uint32_t default_resource);
+// Slot word of an image heap byte offset; offsets past the heap select the null element.
+uint32_t EmitImageHeapEntry(EmitterState& state, uint32_t key, uint32_t mapping_offset);
 MemoryResourceAccess PrepareMemoryResourceAccess(EmitterState& state, const IR::MemoryInfo& mem,
                                                  uint32_t array_index = 0u);
 
@@ -517,8 +522,6 @@ uint32_t EmitClassMaskF16(EmitterState& state, uint32_t bits, uint32_t mask);
 
 uint32_t EmitMinMaxF32Value(EmitterState& state, uint32_t lhs, uint32_t rhs, bool max_value);
 
-inline constexpr auto EmitTruncF32Value = EmitGlsl<GLSLstd450Trunc, IR::Type::F32, uint32_t>;
-
 uint32_t EmitFlushF32DenormToSignedZero(EmitterState& state, uint32_t value);
 
 uint32_t EmitTrigCycleF32(EmitterState& state, uint32_t src, bool preserve_signed_zero);
@@ -579,6 +582,10 @@ auto EmitIndexSwitch(EmitterState& state, uint32_t index, uint32_t count,
 
 template <typename Fn>
 void EmitIfCondition(EmitterState& state, uint32_t condition, Fn&& fn) {
+	if (condition == ConstantBool(state, true)) {
+		fn();
+		return;
+	}
 	const auto then_label  = state.builder.AllocateId();
 	const auto merge_label = state.builder.AllocateId();
 	state.builder.AddFunction(spv::OpSelectionMerge, merge_label, spv::SelectionControlMaskNone);
@@ -592,6 +599,7 @@ void EmitIfCondition(EmitterState& state, uint32_t condition, Fn&& fn) {
 template <typename Fn>
 uint32_t EmitValueOrDefaultIfCondition(EmitterState& state, uint32_t condition, uint32_t type,
                                        uint32_t default_value, Fn&& fn) {
+	if (condition == ConstantBool(state, true)) return fn();
 	const auto then_label  = state.builder.AllocateId();
 	const auto header     = state.current_label;
 	const auto merge_label = state.builder.AllocateId();

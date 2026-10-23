@@ -254,6 +254,10 @@ static bool IsSupportedStorageTextureDescriptor(const ShaderRecompiler::IR::Imag
 	const bool is_3d = resource.dimension == ShaderRecompiler::Decoder::ImageDimension::Dim3D &&
 	                   descriptor.Type() == Prospero::ImageType::kColor3D &&
 	                   descriptor.BaseArray5() == 0;
+	const bool is_2d_msaa =
+	    resource.dimension == ShaderRecompiler::Decoder::ImageDimension::Dim2DMsaa &&
+	    descriptor.Type() == Prospero::ImageType::kColor2DMsaa && descriptor.Depth() == 0 &&
+	    descriptor.BaseArray5() == 0;
 	TileTextureBlockLayout tile_layout {};
 	bool                   supported_tile = false;
 	switch (tile) {
@@ -284,8 +288,8 @@ static bool IsSupportedStorageTextureDescriptor(const ShaderRecompiler::IR::Imag
 	const bool supported_swizzle =
 	    IsValidImageSwizzle(swizzle) &&
 	    (swizzle == DstSel(4, 5, 6, 7) || !resource.read || resource.atomic);
-	return (is_1d || is_1d_array || is_2d || is_2d_array || is_3d) && supported_tile &&
-	       descriptor.BaseLevel() <= descriptor.LastLevel() &&
+	return (is_1d || is_1d_array || is_2d || is_2d_array || is_3d || is_2d_msaa) &&
+	       supported_tile && descriptor.BaseLevel() <= descriptor.LastLevel() &&
 	       descriptor.MinLod() == 0 && supported_swizzle && descriptor.BCSwizzle() == 0 &&
 	       !descriptor.MsaaDepth();
 }
@@ -356,7 +360,7 @@ static ImageViewInfo TextureViewInfo(const ShaderRecompiler::IR::ImageResource& 
 	}
 	view.usage = storage ? vk::ImageUsageFlagBits::eStorage : vk::ImageUsageFlagBits::eSampled;
 	view.mapping =
-	    storage || surface_format.conversion_format != Prospero::BufferFormat::kInvalid
+	    storage || resource.conversion_format != Prospero::BufferFormat::kInvalid
 	        ? vk::ComponentMapping {}
 	        : TextureGetComponentMapping(descriptor.DstSelXYZW(), surface_format.host_to_storage);
 	switch (resource.dimension) {
@@ -515,7 +519,9 @@ TextureBinding RenderExecutor::ResolveTexture(const ShaderRecompiler::IR::ImageR
 	}
 	const auto samples = multisampled ? 1u << last_level : 1u;
 	const auto depth          = static_cast<uint32_t>(descriptor.Depth()) + 1u;
-	const auto format         = descriptor.Format();
+	const auto format         = ShaderRecompiler::IR::ReadsDepthBits(resource)
+	                                ? Prospero::BufferFormat::k16UNorm
+	                                : descriptor.Format();
 	const auto surface_format = TextureGetSurfaceFormatInfo(format);
 	const bool shader_conversion =
 	    surface_format.conversion_format != Prospero::BufferFormat::kInvalid;
@@ -579,6 +585,10 @@ TextureBinding RenderExecutor::ResolveTexture(const ShaderRecompiler::IR::ImageR
 	const auto alignment = desc.info.DataAlignment();
 	EXIT_NOT_IMPLEMENTED(desc.info.data.size == 0 || alignment == 0 ||
 	                     (address & (static_cast<uint64_t>(alignment) - 1u)) != 0);
+	// Image heaps keep the descriptors of unmapped textures, which PS5 never samples.
+	if (resource.heap && !m_context.IsMapped(address, desc.info.data.size)) {
+		return {.layout = vk::ImageLayout::eGeneral};
+	}
 	if (storage) {
 		ValidateStorageTexture(resource, descriptor, desc.info.data.size);
 	}
@@ -684,6 +694,10 @@ void RenderExecutor::PrepareBindings(const ShaderStageRuntime& runtime,
 	prepared.samplers.clear();
 	prepared.shader_data.clear();
 	for (uint32_t i = 0; i < program.info.images.size(); i++) {
+		if (program.info.images[i].heap) {
+			prepared.images[i] = {};
+			continue;
+		}
 		auto binding = ResolveTexture(program.info.images[i], snapshot.images[i]);
 		BindImage(binding.image_id, binding.desc.type == TextureCache::BindingType::Storage);
 		binding.mip_views.swap(prepared.images[i].mip_views);
@@ -846,13 +860,18 @@ void RenderExecutor::RebindImages(PreparedBindings& prepared) {
 
 void RenderExecutor::PrepareGraphicsBindings(std::span<PreparedBindings* const> stages,
                                              std::span<RenderColorInfo> colors) {
-	bool uses_dma = false;
+	bool uses_dma        = false;
+	bool uses_image_heap = false;
 	FindBuffers(stages);
 	for (auto* stage: stages) {
 		uses_dma |= stage->runtime->program->info.uses_dma;
+		uses_image_heap |= stage->runtime->program->info.uses_image_heap;
 	}
 	if (uses_dma) {
 		m_context.PrepareBda();
+	}
+	if (uses_image_heap) {
+		m_context.GetImageHeap().Rebind(*this);
 	}
 	for (auto* stage: stages) {
 		RebindImages(*stage);
@@ -953,6 +972,9 @@ void RenderExecutor::CommitBindings(CommandBuffer&                     buffer,
 			}
 		}
 	}
+	if (pipeline.uses_image_heap) {
+		m_context.GetImageHeap().Commit(buffer, pipeline_bind_point, pipeline.pipeline_layout);
+	}
 	m_descriptor_images.resize(image_descriptor_count);
 	m_descriptor_writes.clear();
 	m_descriptor_writes.reserve(write_count);
@@ -1010,9 +1032,7 @@ void RenderExecutor::CommitBindings(CommandBuffer&                     buffer,
 				              vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite,
 				              range, vk_buffer);
 			} else {
-				image.Transit(image.info.IsDepth() ? vk::ImageLayout::eDepthStencilReadOnlyOptimal
-				                                   : vk::ImageLayout::eShaderReadOnlyOptimal,
-				              vk::AccessFlagBits2::eShaderRead, range, vk_buffer);
+				image.Transit(image.ReadLayout(), vk::AccessFlagBits2::eShaderRead, range, vk_buffer);
 			}
 			binding.layout = image.backing.state.layout;
 		}
@@ -1083,6 +1103,7 @@ void RenderExecutor::CommitBindings(CommandBuffer&                     buffer,
 		for (uint32_t i = 0; i < program.info.images.size(); ++i) {
 			const auto& resource = program.info.images[i];
 			const auto& texture = descriptors.images[i];
+			if (resource.heap) continue;
 			EXIT_IF(texture.image_id &&
 			        resource.mip_count != (texture.mip_views.empty() ? 1u : texture.mip_views.size()));
 			const auto kind = *ShaderRecompiler::IR::DescriptorBindingForImage(resource);

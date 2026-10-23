@@ -308,7 +308,7 @@ struct PipelineCache::ProgramCache {
 		auto result = ShaderRecompiler::CompileProgram(std::move(translated), options,
 		                                               specialization, push_data_start_dword);
 		if (!ValidateShaderSpirv(options.dump_label, options.shader_hash, result.spirv,
-		                         options.maintenance8_enabled)) {
+		                         options.profile->maintenance8)) {
 			DumpShaderSpirv(stage_name, options.shader_hash, result.spirv);
 			EXIT("%s failed hash=0x%016" PRIx64 ": SPIR-V validation failed\n", options.dump_label,
 			     options.shader_hash);
@@ -353,6 +353,7 @@ struct PipelineCache::ProgramCache {
 		    .user_data                  = user_data,
 		    .shader_base                = params.Base(),
 		    .read_specialization_memory = ReadShaderGuestMemory,
+		    .image_heap                 = image_heap,
 		};
 		if constexpr (std::is_same_v<InputInfo, ShaderComputeInputInfo>) {
 			runtime.workgroup_counts = input_info.workgroup_counts;
@@ -398,7 +399,7 @@ struct PipelineCache::ProgramCache {
 		}
 		ShaderRecompiler::CompileOptions options;
 		options.stage       = stage;
-		options.maintenance8_enabled = graphics.maintenance8_enabled;
+		options.profile     = &profile;
 		options.shader_hash = params.hash;
 		options.user_data   = user_data;
 		options.back_code      = params.back_code;
@@ -480,7 +481,13 @@ struct PipelineCache::ProgramCache {
 		return permutation.handle;
 	}
 
-	explicit ProgramCache(GraphicContext& graphics): graphics(graphics) {
+	ProgramCache(GraphicContext& graphics, ShaderRecompiler::IR::ImageHeapSource* image_heap)
+	    : graphics(graphics), image_heap(image_heap),
+	      // AMD GPUs (vendor 0x1002) run NMin/NMax as v_min/v_max, which give the guest's NaN and
+	      // signed-zero results; GLSL.std.450 alone does not order -0 below +0.
+	      profile {.maintenance8 = graphics.maintenance8_enabled,
+		           .native_float_min_max =
+		               graphics.physical_device_properties.vendorID == 0x1002u} {
 		lookup_key.static_state.reserve(MaxStaticKeyWords);
 	}
 	~ProgramCache() {
@@ -495,11 +502,14 @@ struct PipelineCache::ProgramCache {
 	std::unordered_map<ProgramKey, SourceEntry, ProgramKeyHash> programs;
 	ProgramKey                                                  lookup_key;
 	GraphicContext&                                             graphics;
+	ShaderRecompiler::IR::ImageHeapSource*                      image_heap;
+	const ShaderRecompiler::Spirv::Profile                      profile;
 	uint64_t                                                    next_shader_id = 0;
 };
 
-PipelineCache::PipelineCache(GraphicContext& graphics)
-    : m_graphics(graphics), m_program_cache(std::make_unique<ProgramCache>(graphics)),
+PipelineCache::PipelineCache(GraphicContext&                         graphics,
+                             ShaderRecompiler::IR::ImageHeapSource* image_heap)
+    : m_graphics(graphics), m_program_cache(std::make_unique<ProgramCache>(graphics, image_heap)),
       m_next_driver_cache_save(std::chrono::steady_clock::now() + DriverCacheSaveInterval) {
 	EXIT_NOT_IMPLEMENTED(!Common::Thread::IsMainThread());
 	InitializeDriverCache();

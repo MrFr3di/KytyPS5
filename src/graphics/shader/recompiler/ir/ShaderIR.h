@@ -169,6 +169,7 @@ struct ImageResource {
 	bool                          depth_compare     = false;
 	bool                          cube              = false;
 	bool                          r128              = false;
+	bool                          heap              = false; // Resident image heap root or kind.
 	uint32_t                      indirect_root     = NoIndirectImage;
 	uint32_t                      indirect_mapping_offset   = 0;
 	uint32_t                      indirect_search_iterations = 0;
@@ -186,6 +187,12 @@ RawSignedStorageFormat(const ImageResource& image, Prospero::BufferFormat format
 	if (format == Prospero::BufferFormat::k16SInt && !image.read && !image.atomic)
 		return Prospero::BufferFormat::k16UInt;
 	return Prospero::BufferFormat::kInvalid;
+}
+
+// A raw load of a kDepth k16UInt T# reads a D16 surface's codes. Vulkan cannot view D16 as
+// R16Uint, so the host binds it as UNorm and the shader converts back.
+[[nodiscard]] constexpr bool ReadsDepthBits(const ImageResource& image) {
+	return image.conversion_format == Prospero::BufferFormat::k16UInt;
 }
 
 struct SamplerResource {
@@ -337,7 +344,12 @@ struct StageOutput {
 inline constexpr uint32_t FirstImageBinding           = 1u;
 inline constexpr uint32_t FirstComparisonImageBinding = 22u;
 inline constexpr uint32_t FirstStorageImageBinding    = 29u;
-inline constexpr uint32_t ImageBindingCount           = 48u;
+inline constexpr uint32_t ImageBindingCount           = 50u;
+// Resident image heaps share one sampled-image array at binding 0 of this set. A heap slot
+// word is kind << ImageHeapKindShift | element; element 0 is the null descriptor.
+inline constexpr uint32_t ImageHeapSet                = 1u;
+inline constexpr uint32_t ImageHeapCapacity           = 65536u;
+inline constexpr uint32_t ImageHeapKindShift          = 20u;
 
 enum class DescriptorBindingKind : uint32_t {
 	Buffers  = 0u,
@@ -351,8 +363,8 @@ enum class DescriptorBindingKind : uint32_t {
 	Count,
 };
 
-static_assert(static_cast<uint32_t>(DescriptorBindingKind::Samplers) == 49u);
-static_assert(static_cast<uint32_t>(DescriptorBindingKind::Count) == 56u);
+static_assert(static_cast<uint32_t>(DescriptorBindingKind::Samplers) == 51u);
+static_assert(static_cast<uint32_t>(DescriptorBindingKind::Count) == 58u);
 
 struct PushData {
 	static constexpr uint32_t DwordCount = 32;
@@ -413,8 +425,8 @@ DescriptorBindingForImage(const ImageResource& image) {
 	constexpr uint32_t SampledUintBinding  = 8u;
 	constexpr uint32_t SampledSintBinding  = 15u;
 	constexpr uint32_t StorageFloatBinding = FirstStorageImageBinding;
-	constexpr uint32_t StorageUintBinding  = StorageFloatBinding + 5u;
-	constexpr uint32_t AtomicUintBinding   = StorageUintBinding + 5u;
+	constexpr uint32_t StorageUintBinding  = StorageFloatBinding + 6u;
+	constexpr uint32_t AtomicUintBinding   = StorageUintBinding + 6u;
 
 	uint32_t base    = 0;
 	bool     sampled = false;
@@ -461,10 +473,10 @@ DescriptorBindingForImage(const ImageResource& image) {
 		case Decoder::ImageDimension::Dim2D: dimension = 2u; break;
 		case Decoder::ImageDimension::Dim2DArray: dimension = 3u; break;
 		case Decoder::ImageDimension::Dim2DMsaa:
-			if (!sampled) {
+			if (image.atomic) {
 				return std::nullopt;
 			}
-			dimension = 4u;
+			dimension = sampled ? 4u : 5u;
 			break;
 		case Decoder::ImageDimension::Dim2DMsaaArray:
 			if (!sampled) {
@@ -523,6 +535,7 @@ struct ShaderInfo {
 	bool                            uses_lds                      = false;
 	bool                            uses_gds                      = false;
 	bool                            uses_flattened_srt            = false;
+	bool                            uses_image_heap               = false;
 	bool                            uses_dispatch_threads         = false;
 	bool                            bvh                           = false;
 	bool                            subgroup_ballot               = false;
